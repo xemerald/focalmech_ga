@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 #include <math.h>
 #include <float.h>
 
@@ -16,7 +17,20 @@ static int remove_approx_result( FPL_RESULT *, int );
 static int is_same_group_result( FPL_RESULT *, const FPL_RESULT *, const double );
 static int compare_azimuth( const void *, const void * );
 
-/***/
+/**
+ * @brief
+ *
+ * @param observes
+ * @param nobs
+ * @param nitr
+ * @param npop
+ * @param mutate_bits
+ * @param repro_rate
+ * @param mutate_rate
+ * @param output
+ * @param nout
+ * @return double
+ */
 double fpl_find_ga( void *observes, int nobs, int nitr, int npop, int mutate_bits, double repro_rate, double mutate_rate, FPL_RESULT *output, int *nout )
 {
 	GA_POPULATION ppop[npop];
@@ -49,13 +63,22 @@ double fpl_find_ga( void *observes, int nobs, int nitr, int npop, int mutate_bit
 	return ppop[0].score;
 }
 
-void fpl_result_refine( FPL_RESULT *results, int nresult )
+/**
+ * @brief
+ *
+ * @param results
+ * @param sdv
+ * @param nresult
+ * @return int
+ */
+int fpl_result_refine( FPL_RESULT *results, FPL_RESULT *sdv, int nresult )
 {
-	double tmp;
-	int    nsolution;
+	double     tmp;
+	int        nsolution;
+	int        _nresult;
 	FPL_RESULT _results[nresult];
 	FPL_RESULT solutions[nresult];
-	FPL_RESULT sdv[nresult];
+	FPL_RESULT _sdv[nresult];
 	int        resflag[nresult];
 	FPL_RESULT dbresult[2];
 /* */
@@ -186,12 +209,12 @@ void fpl_result_refine( FPL_RESULT *results, int nresult )
 	}
 
 /* */
+	_nresult = 0;
 	for ( int i = 0; i < nsolution; i++ ) {
 		double _strike = 0.0;
 		double _dip = 0.0;
 		double _rake = 0.0;
 		int    nn = 0;
-		FPL_RESULT *nsol_best;
 
 		for ( int j = 0; j < nresult; j++ ) {
 			if ( resflag[j] == i ) {
@@ -221,33 +244,33 @@ void fpl_result_refine( FPL_RESULT *results, int nresult )
 			}
 		}
 
-		sdv[i].strike = 0.0;
-		sdv[i].dip = 0.0;
-		sdv[i].rake = 0.0;
+		_sdv[i].strike = 0.0;
+		_sdv[i].dip = 0.0;
+		_sdv[i].rake = 0.0;
 		for ( int j = 0; j < nresult; j++ ) {
 			if ( resflag[j] == i ) {
-				sdv[i].strike += (_results[j].strike - _strike) * (_results[j].strike - _strike);
-				sdv[i].dip += (_results[j].dip - _dip) * (_results[j].dip - _dip);
-				sdv[i].rake += (_results[j].rake - _rake) * (_results[j].rake - _rake);
+				_sdv[i].strike += (_results[j].strike - _strike) * (_results[j].strike - _strike);
+				_sdv[i].dip += (_results[j].dip - _dip) * (_results[j].dip - _dip);
+				_sdv[i].rake += (_results[j].rake - _rake) * (_results[j].rake - _rake);
 			}
 		}
 		if ( nn > 1 ) {
-			sdv[i].strike = 2.0 * sqrt(sdv[i].strike / nn);
-			sdv[i].dip = 2.0 * sqrt(sdv[i].dip / nn);
-			sdv[i].rake = 2.0 * sqrt(sdv[i].rake / nn);
+			_sdv[i].strike = 2.0 * sqrt(_sdv[i].strike / nn);
+			_sdv[i].dip = 2.0 * sqrt(_sdv[i].dip / nn);
+			_sdv[i].rake = 2.0 * sqrt(_sdv[i].rake / nn);
 		}
 		else {
-			sdv[i].strike = 1.4;
-			sdv[i].dip = 1.4;
-			sdv[i].rake = 1.4;
+			_sdv[i].strike = 1.4 * FPLF_DEG2RAD;
+			_sdv[i].dip = 1.4 * FPLF_DEG2RAD;
+			_sdv[i].rake = 1.4 * FPLF_DEG2RAD;
 		}
 	/* */
-		if ( sdv[i].strike < 1.0 )
-			sdv[i].strike = 1.0;
-		if ( sdv[i].dip < 1.0 )
-			sdv[i].dip = 1.0;
-		if ( sdv[i].rake < 1.0 )
-			sdv[i].rake = 1.0;
+		if ( _sdv[i].strike < FPLF_DEG2RAD )
+			_sdv[i].strike = FPLF_DEG2RAD;
+		if ( _sdv[i].dip < FPLF_DEG2RAD )
+			_sdv[i].dip = FPLF_DEG2RAD;
+		if ( _sdv[i].rake < FPLF_DEG2RAD )
+			_sdv[i].rake = FPLF_DEG2RAD;
 	/* */
 		if ( solutions[i].dip > FPLF_HALF_PI ) {
 			solutions[i].strike = solutions[i].strike + FPLF_PI;
@@ -266,9 +289,13 @@ void fpl_result_refine( FPL_RESULT *results, int nresult )
 			solutions[i].rake -= FPLF_PI2;
 		if ( solutions[i].rake < -FPLF_PI )
 			solutions[i].rake += FPLF_PI2;
+	/* Passing the solutions */
+		results[_nresult] = solutions[i];
+		sdv[_nresult] = _sdv[i];
+		_nresult++;
 	}
 
-	return;
+	return _nresult;
 }
 
 /**
@@ -314,7 +341,7 @@ double fpl_quality_cal( FPL_OBSERVE *observes, const int nobs, const double f_sc
 	else
 		quality_score = (f_score - 0.7) / 0.15;
 
-/* Find Porarity Quality */
+/* Find Polarity Quality */
 	npos_por = 0;
 	for ( int i = 0; i < nobs; i++ ){
 		if (observes[i].polarity > 0.5 )

@@ -1,6 +1,7 @@
 /**
  * @file tko_azi_cal.c
- * @author your name (you@domain.com)
+ * @author 2009/07/26 by Yih-Min Wu created the 3D velocity earthquake location program
+ * @anchor 2017/08/11 by Benjamin Ming Yang modified
  * @brief
  * @version 0.1
  * @date 2023-09-25
@@ -8,13 +9,6 @@
  * @copyright Copyright (c) 2023
  *
  */
-
-/*
-	3D velocity earthquake location program
-	Created 2009/07/26 by Yih-Min Wu
-	Modifed 2017/08/11 by Benjamin Ming Yang
-*/
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -83,8 +77,10 @@ static int Ibld3, Ibld4;
 static int Nlat_c, Nlon_c, Ndep_c;
 static int Nxyz_c, Nxy_c, Nx_c;
 
+/* */
 static void cal_tko_azi( const RAY_INFO *, const int, double *, double * );
-static void pbr_main( double, double, double, double, double, double, RAY_INFO *, int *, double * );
+static void raytracing_pb( double, double, double, double, double, double, RAY_INFO *, int *, double * );
+static void step_ray_node( RAY_INFO *, const RAY_INFO *, const double, const double );
 static double get_ray_traveltime( const RAY_INFO *, const int );
 static double get_vel_ray( const RAY_INFO *, const double );
 static double get_vel_geog( const double, const double, const double );
@@ -96,21 +92,20 @@ static int vel_point2grid( const double *, VEL_GRID *, const int, const int, con
 static double geog2geoc( const double );
 static double geoc2geog( const double );
 static double get_earth_radius( double );
-static void step_ray_node( RAY_INFO *, const RAY_INFO *, const double, const double );
 
 /**
  * @brief
  *
  * @param tko
  * @param azi
- * @param evdp
- * @param evlo
  * @param evla
- * @param stdp
- * @param stlo
+ * @param evlo
+ * @param evdp
  * @param stla
+ * @param stlo
+ * @param stdp
  */
-void tac_main( double *tko, double *azi, double evdp, double evlo, double evla, double stdp, double stlo, double stla )
+void tac_main( double *tko, double *azi, double evla, double evlo, double evdp, double stla, double stlo, double stdp )
 {
 	RAY_INFO ray[MSG_NUMBER + 1];
 	int np;
@@ -137,7 +132,7 @@ void tac_main( double *tko, double *azi, double evdp, double evlo, double evla, 
 	stla = geog2geoc( stla );
 	evla = geog2geoc( evla );
 /* */
-	pbr_main( evla, evlo, evdp, stla, stlo, stdp, ray, &np, &tt );
+	raytracing_pb( evla, evlo, evdp, stla, stlo, stdp, ray, &np, &tt );
 	cal_tko_azi( ray, np, tko, azi );
 /* Show full information */
 	printf("# nodes = %d, travel time = %lf\n", np, tt);
@@ -216,7 +211,7 @@ static void cal_tko_azi( const RAY_INFO *ray, const int np, double *tko, double 
 	tmp2 = ray[1].b - ray[0].b;
 	tmp1 = tmp1 < 0.0 ? tan(fabs(tmp1)) : -tan(fabs(tmp1));
 	tmp2 = tmp2 > 0.0 ? tan(fabs(tmp2)) : -tan(fabs(tmp2));
-	_azi = atan2(tmp2, tmp1);
+	_azi = atan2(tmp2 * sin(ray[0].a), tmp1);
 	if ( _azi < 0.0 )
 		_azi += FOCAL_GA_PI2;
 /* */
@@ -239,7 +234,7 @@ static void cal_tko_azi( const RAY_INFO *ray, const int np, double *tko, double 
  * @param np
  * @param tk
  */
-static void pbr_main( double evla, double evlo, double evdp, double stla, double stlo, double stel, RAY_INFO *ray, int *np, double *tk )
+static void raytracing_pb( double evla, double evlo, double evdp, double stla, double stlo, double stel, RAY_INFO *ray, int *np, double *tk )
 {
 	int ni, i, j, k, l;
 

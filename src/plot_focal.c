@@ -4,22 +4,34 @@
 #include <float.h>
 #include <math.h>
 
+/* PGPLOT C library header */
 #include <cpgplot.h>
+#include <constants.h>
 #include <fpl_func.h>
 
 #define  COLOR_INDEX_BG    0
 #define  COLOR_INDEX_FG    1
 
-void pfocal_canva_gen( const char *filepath )
+/**
+ * @brief
+ *
+ * @param fullpath
+ */
+void pfocal_canva_open( const char *fullpath )
 {
-	if ( !cpgopen(filepath) ) {
-		printf("ERROR!! %s\n", filepath);
+	char _path[MAX_PATH_STR];
+/* */
+	sprintf(_path, "%s/png", fullpath);
+	if ( !cpgopen(_path) ) {
+		fprintf(stderr, "pfocal_canva_open: ERROR!! Can't open %s\n", fullpath);
 		return;
 	}
-	cpgscr(COLOR_INDEX_FG,    0.0, 0.0, 0.0);
-	cpgscr(COLOR_INDEX_BG,    1.0, 1.0, 1.0);
+/* */
+	cpgscr(COLOR_INDEX_FG, 0.0, 0.0, 0.0);
+	cpgscr(COLOR_INDEX_BG, 1.0, 1.0, 1.0);
 	cpgpap(30, 1.0);
 	cpgbbuf();
+/* */
 	cpgslw(12);
 	cpgenv(-12.0, 12.0, -12.0, 12.0, 1, -1);
 	cpgscf(3);
@@ -31,7 +43,10 @@ void pfocal_canva_gen( const char *filepath )
 	return;
 }
 
-
+/**
+ * @brief
+ *
+ */
 void pfocal_canva_close( void )
 {
 	cpgebuf();
@@ -39,8 +54,12 @@ void pfocal_canva_close( void )
 	return;
 }
 
-
-/***/
+/**
+ * @brief
+ *
+ * @param dbplane
+ * @param radius
+ */
 void pfocal_dbplane_plot( FPL_RESULT dbplane[2], const double radius )
 {
 	const double r_sqrt_two = radius * sqrt(2.0);
@@ -71,7 +90,12 @@ void pfocal_dbplane_plot( FPL_RESULT dbplane[2], const double radius )
 	return;
 }
 
-/***/
+/**
+ * @brief
+ *
+ * @param ptaxis
+ * @param radius
+ */
 void pfocal_pt_axis_plot( FPL_RESULT ptaxis[2], const double radius )
 {
 	const double r_sqrt_two = radius * sqrt(2.0);
@@ -89,7 +113,13 @@ void pfocal_pt_axis_plot( FPL_RESULT ptaxis[2], const double radius )
 	return;
 }
 
-/***/
+/**
+ * @brief
+ *
+ * @param observes
+ * @param nobserve
+ * @param radius
+ */
 void pfocal_observe_plot( FPL_OBSERVE *observes, const int nobserve, const double radius )
 {
 	const double r_sqrt_two = radius * sqrt(2.0);
@@ -118,7 +148,20 @@ void pfocal_observe_plot( FPL_OBSERVE *observes, const int nobserve, const doubl
 	return;
 }
 
-/***/
+/**
+ * @brief
+ *
+ * @param year
+ * @param mon
+ * @param day
+ * @param hour
+ * @param min
+ * @param sec
+ * @param mag
+ * @param lat
+ * @param lon
+ * @param depth
+ */
 void pfocal_eq_info_plot( int year, int mon, int day, int hour, int min, double sec, double mag, double lat, double lon, double depth )
 {
 	char str_buf[128] = { 0 };
@@ -135,7 +178,18 @@ void pfocal_eq_info_plot( int year, int mon, int day, int hour, int min, double 
 	return;
 }
 
-/***/
+/**
+ * @brief
+ *
+ * @param dbplane
+ * @param ptaxis
+ * @param strike_sdv
+ * @param dip_sdv
+ * @param rake_sdv
+ * @param q
+ * @param fscore
+ * @param radius
+ */
 void pfocal_plane_info_plot( FPL_RESULT dbplane[2], FPL_RESULT ptaxis[2], double strike_sdv, double dip_sdv, double rake_sdv, double q, double fscore, const double radius )
 {
 	float tmp = radius / 20.0;
@@ -185,6 +239,9 @@ void pfocal_plane_info_plot( FPL_RESULT dbplane[2], FPL_RESULT ptaxis[2], double
 	cpgcirc(-11.0, 8.6, tmp);
 	cpgtext(-10.7, 8.6 - tmp, "Up");
 
+	strike_sdv *= FOCAL_GA_RAD2DEG;
+	dip_sdv *= FOCAL_GA_RAD2DEG;
+	rake_sdv *= FOCAL_GA_RAD2DEG;
 	cpgtext(3.5, 11.0, "Fault Plane A Uncertainty");
 	sprintf(str_buf, "Strike+-%3d, Dip+-%3d, Rake+-%3d.", (int)strike_sdv, (int)dip_sdv, (int)rake_sdv);
 	cpgtext(0.8, 10.2, str_buf);

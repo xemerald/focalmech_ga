@@ -36,7 +36,7 @@ typedef struct {
 
 /**/
 double fpl_find_ga( void *, int, int, int, int, double, double, FPL_RESULT *, int * );
-void fpl_result_refine( FPL_RESULT *, int );
+int fpl_result_refine( FPL_RESULT *, FPL_RESULT *, int );
 double fpl_quality_cal( FPL_OBSERVE *, const int, const double );
 FPL_RESULT *fpl_dbcouple( FPL_RESULT *, FPL_RESULT [2], FPL_RESULT *, FPL_RESULT * );
 FPL_OBSERVE fpl_observe_deg2rad( FPL_OBSERVE * );

@@ -3,7 +3,7 @@
 #include <string.h>
 #include <stdio.h>
 
-
+#include <tko_azi_cal.h>
 #include <ga_core.h>
 #include <fpl_func.h>
 #include <plot_focal.h>
@@ -13,6 +13,7 @@ int main( int argc, char **argv )
 	FILE *fp = NULL;
 	FPL_OBSERVE *obs = NULL;
 	FPL_RESULT result[800];
+	FPL_RESULT sdv[800];
 	int nobs = 0;
 	int nres = 0;
 	char line[512] = { 0 };
@@ -52,18 +53,21 @@ int main( int argc, char **argv )
 	fclose(fp);
 
 	f_score = fpl_find_ga( obs, nobs, 20, 800, 3, 0.036, 0.72, result, &nres );
-	fpl_result_refine(result, nres);
+	double q = fpl_quality_cal( obs, nobs, f_score );
+	printf("%f %d\n", f_score, nres);
+	nres = fpl_result_refine(result, sdv, nres);
+	q /= nres;
 	printf("%f %d\n", f_score, nres);
 	//for ( int i = 0; i < nres; i++ ) {
 		FPL_RESULT dbresult[2];
 		FPL_RESULT ptaxis[2];
 		fpl_dbcouple(&result[0], dbresult, &ptaxis[FPLF_T_AXIS], &ptaxis[FPLF_P_AXIS]);
-		pfocal_canva_gen("/home/benyang/test.png/png");
+		pfocal_canva_open("/home/benyang/test.png/png");
 		pfocal_dbplane_plot( dbresult, 10.0 );
 		pfocal_pt_axis_plot( ptaxis, 10.0 );
 		pfocal_observe_plot( obs, nobs, 10.0 );
 		pfocal_eq_info_plot( 2020, 6, 26, 23, 27, 44.94, 5.05, 23.01, 120.91, 4.73 );
-		pfocal_plane_info_plot( dbresult, ptaxis, 30.1, 15.5, 33.1, 10.0, f_score, 10.0 );
+		pfocal_plane_info_plot( dbresult, ptaxis, sdv[0].strike, sdv[0].dip, sdv[0].rake, q, f_score, 10.0 );
 		pfocal_canva_close();
 		//fpl_result_rad2deg( &dbresult[0] );
 		//fpl_result_rad2deg( &dbresult[1] );

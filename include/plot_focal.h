@@ -12,7 +12,7 @@
 
 #include <fpl_func.h>
 
-void pfocal_canva_gen( const char *filepath );
+void pfocal_canva_open( const char *filepath );
 void pfocal_canva_close( void );
 void pfocal_dbplane_plot( FPL_RESULT dbplane[2], const double radius );
 void pfocal_pt_axis_plot( FPL_RESULT ptaxis[2], const double radius );
