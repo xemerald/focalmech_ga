@@ -12,6 +12,7 @@
 /* */
 #include <stdint.h>
 /* */
+#define  MAX_THREADS_NUM         128
 #define  MAX_STR_SIZE            256
 #define  MAX_PATH_STR            512
 #define  MAX_IN_MSG              8

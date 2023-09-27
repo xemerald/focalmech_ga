@@ -9,7 +9,7 @@ LogFile             1               # 0 to turn off disk log file; 1 to turn it 
                                     # to log to module log but not stderr/stdout
 HeartBeatInterval   15              # seconds between heartbeats
 
-QueueSize           50              # max messages in internal circular msg buffer
+ThreadsNum          4               # number of parallel processing threads, max is 128
 
 RemoveFocalPlot     0               # 0 to keep those plot files; 1 to remove those
                                     # files after posted. Defaults to 0 if this is not setted

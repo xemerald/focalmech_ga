@@ -19,6 +19,7 @@
 /* Local header include */
 #include <focalmech_ga.h>
 #include <full_event_msg.h>
+#include <thrd_pool.h>
 #include <fpl_func.h>
 #include <plot_focal.h>
 #include <tko_azi_cal.h>
@@ -39,7 +40,7 @@ static void split_time( int *, int *, int *, int *, int *, double *, const doubl
 
 static SHM_INFO Region;      /* shared memory region to use for i/o    */
 
-#define MAXLOGO   8
+#define MAXLOGO   4
 
 static MSG_LOGO Getlogo[MAXLOGO];   /* array for requesting module,type,instid */
 static pid_t    MyPid;              /* for restarts by startstop               */
@@ -52,21 +53,20 @@ static pid_t    MyPid;              /* for restarts by startstop               *
 
 #define MAX_POST_SCRIPTS        5
 
-static volatile int ProcessEventStatus = THREAD_OFF;
-static volatile int PlotMapStatus      = THREAD_OFF;
-static volatile _Bool Finish = 0;
+static tpool_t *ThrdPool = NULL;
 
 /* Things to read or derive from configuration file */
 static char     RingName[MAX_RING_STR];		/* name of transport ring for i/o    */
 static char     MyModName[MAX_MOD_STR];		/* speak as this module name/id      */
 static uint8_t  LogSwitch;					/* 0 if no logfile should be written */
 static uint64_t HeartBeatInterval;			/* seconds between heartbeats        */
-static uint64_t QueueSize;					/* max messages in output circular buffer */
+static uint8_t  ThreadsNum   = 1;
 static uint8_t  RemoveSwitch = 0;
 static short    nLogo = 0;
 static char     ReportPath[MAX_PATH_STR];
 static POSCRIPT PostScripts[MAX_POST_SCRIPTS];
-static uint8_t  NumPostScripts = 0;                /* Number of exec. scripts */
+static uint8_t  NumPostScripts  = 0;                /* Number of exec. scripts */
+static uint32_t MinPickPolarity = 3;
 static uint8_t  IterationNum    = 20;
 static uint32_t Population      = 800;
 static uint8_t  MutateBits      = 3;
@@ -87,8 +87,33 @@ static unsigned char TypeFullEvent;
 #define ERR_QUEUE         3   /* error queueing message for sending      */
 static char  Text[150];       /* string for log/error messages          */
 
-/*
+/**
+ * @brief
  *
+ */
+typedef struct {
+	void  *buffer;
+	size_t size;
+	int    is_copied;
+} _BUFFER_DELIVER_ARG;
+
+/**
+ * @brief
+ *
+ */
+typedef struct {
+	void *buffer;
+	int   proc_thrds;
+	int   assign_idx;
+	int   is_finish;
+} _PICKS_TAC_ARG;
+
+/**
+ * @brief
+ *
+ * @param argc
+ * @param argv
+ * @return int
  */
 int main( int argc, char **argv )
 {
@@ -102,19 +127,12 @@ int main( int argc, char **argv )
 	MSG_LOGO reclogo;      /* logo of retrieved message     */
 
 	uint8_t  buffer[FULL_EVENT_SIZE];
-	FULL_EVENT_MSG_HEADER *header = (FULL_EVENT_MSG_HEADER *)buffer;
-#if defined( _V710 )
-	ew_thread_t tid;            /* Thread ID */
-#else
-	unsigned    tid;            /* Thread ID */
-#endif
 
 /* Check command line arguments */
 	if ( argc != 2 ) {
 		fprintf( stderr, "Usage: focalmech_ga <configfile>\n" );
 		exit( 0 );
 	}
-	Finish = 1;
 /* Initialize name of log-file & open it */
 	logit_init( argv[1], 0, 256, 1 );
 /* Read the configuration file(s) */
@@ -139,10 +157,7 @@ int main( int argc, char **argv )
 	}
 
 /* Create a Mutex to control access to queue & initialize the message queue */
-	/* CreateSemaphore_ew(); */ /* Obsoleted by Earthworm */
-	SemaPtr = CreateSpecificSemaphore_ew( 0 );
-	psk_msgqueue_init( QueueSize, FULL_EVENT_SIZE + 1 );
-
+	tpool_init( &ThrdPool, ThreadsNum + 1, ThreadsNum + 1 );
 /* Attach to Input/Output shared memory ring */
 	tport_attach( &Region, RingKey );
 	logit("", "focalmech_ga: Attached to public memory region %s: %ld\n", RingName, RingKey );
@@ -157,16 +172,6 @@ int main( int argc, char **argv )
 		if ( time(&timeNow) - time_lastbeat >= (int64_t)HeartBeatInterval ) {
 			time_lastbeat = timeNow;
 			focalmech_ga_status( TypeHeartBeat, 0, "" );
-		}
-
-		if ( ProcessEventStatus != THREAD_ALIVE ) {
-			if ( StartThread(thread_proc_shake, (unsigned)THREAD_STACK, &tid) == -1 ) {
-				logit("e", "focalmech_ga: Error starting ProcessShake thread; exiting!\n");
-				tport_detach( &Region );
-				focalmech_ga_end();
-				exit(-1);
-			}
-			ProcessEventStatus = THREAD_ALIVE;
 		}
 
 		do {
@@ -184,8 +189,6 @@ int main( int argc, char **argv )
 			res = tport_getmsg(&Region, Getlogo, nLogo, &reclogo, &recsize, (char *)buffer, FULL_EVENT_SIZE);
 		/* No more new messages     */
 			if ( res == GET_NONE ) {
-				/* PostSemaphore(); */ /* Obsoleted by Earthworm */
-				PostSpecificSemaphore_ew( SemaPtr );
 				break;
 			}
 		/* Next message was too big */
@@ -217,42 +220,30 @@ int main( int argc, char **argv )
 
 		/* Process the message */
 			if ( reclogo.type == TypeFullEvent ) {
+				_BUFFER_DELIVER_ARG arg = {
+					.buffer = buffer,
+					.size = recsize,
+					.is_copied = 0
+				};
 			/* Debug */
 				/* logit( "", "%s", rec ); */
 			/* Generate every given seconds or at the coda of event */
-				res = psk_msgqueue_enqueue( buffer, recsize, reclogo );
-				/* PostSemaphore(); */ /* Obsoleted by Earthworm */
-				PostSpecificSemaphore_ew( SemaPtr );
-				if ( res ) {
-					if ( res == -2 ) {  /* Serious: quit */
-					/* Currently, eneueue() in mem_circ_queue.c never returns this error. */
-						sprintf(Text, "internal queue error. Terminating.");
-						focalmech_ga_status( TypeError, ERR_QUEUE, Text );
-						focalmech_ga_end();
-						exit(-1);
-					}
-					else if ( res == -1 ) {
-						sprintf(Text, "queue cannot allocate memory. Lost message.");
-						focalmech_ga_status( TypeError, ERR_QUEUE, Text );
-					}
-					else if ( res == -3 ) {
-					/*
-					 * Queue is lapped too often to be logged to screen.
-					 * Log circular queue laps to logfile.
-					 * Maybe queue laps should not be logged at all.
-					 */
-						logit("et", "focalmech_ga: Circular queue lapped. Messages lost!\n");
+				if ( tpool_add_work( ThrdPool, proc_event, &arg ) ) {
+					logit("et", "focalmech_ga: Add the event messages to thread pool ERROR, lost message!\n");
+				}
+				else {
+					while ( !arg.is_copied ) {
+						sleep_ew(50);
+						printf("focalmech_ga: Waiting for the transfering of the event messages...\n");
 					}
 				}
 			}
 		} while ( 1 );
-		sleep_ew(50);  /* no more messages; wait for new ones to arrive */
-	}  /* while( 1 ) */
+	/* no more messages; wait for new ones to arrive */
+		sleep_ew(50);
+	} /* while( 1 ) */
 /*-----------------------------end of main loop-------------------------------*/
 exit_procedure:
-	Finish = 0;
-	/* PostSemaphore(); */ /* Obsoleted by Earthworm */
-	PostSpecificSemaphore_ew( SemaPtr );
 /* detach from shared memory */
 	sleep_ew(500);
 	focalmech_ga_end();
@@ -339,16 +330,28 @@ static void focalmech_ga_config( char *configfile )
 				HeartBeatInterval = k_long();
 				init[3] = 1;
 			}
-		/* 4 */
-			else if ( k_its("QueueSize") ) {
-				QueueSize = k_long();
-				init[4] = 1;
+			else if ( k_its("ThreadsNum") ) {
+				if ( ThreadsNum = k_int() > MAX_THREADS_NUM )
+					ThreadsNum = MAX_THREADS_NUM;
+				else if ( ThreadsNum < 1 )
+					ThreadsNum = 1;
+				logit(
+					"o", "focalmech_ga: This process will use %d thread(s) for parallel processing.\n",
+					ThreadsNum
+				);
 			}
 			else if ( k_its("RemoveFocalPlot") ) {
 				RemoveSwitch = k_int();
 				logit(
 					"o", "focalmech_ga: This process will %s the files after posted.\n",
 					RemoveSwitch ? "remove" : "keep"
+				);
+			}
+			else if ( k_its("MinPickPolarity") ) {
+				MinPickPolarity = k_int();
+				logit(
+					"o", "focalmech_ga: The minimum number of pick polarity has been setted to %d.\n",
+					MinPickPolarity
 				);
 			}
 			else if ( k_its("IterationNum") ) {
@@ -601,110 +604,105 @@ static void focalmech_ga_status( unsigned char type, short ierr, char *note )
 static void focalmech_ga_end( void )
 {
 	tport_detach( &Region );
-	psk_plot_end();
+	tpool_destroy( ThrdPool, 0 );
 	tac_velmod_free();
-	psk_msgqueue_end();
-	/* DestroySemaphore(); */ /* Obsoleted by Earthworm */
-	//DestroySpecificSemaphore_ew( SemaPtr );
 
 	return;
 }
 
-/***/
-static thr_ret thread_proc_event( void *dummy )
+/**
+ * @brief
+ *
+ * @param arg
+ */
+static void proc_event( void *arg )
 {
-	int      res;
-	long     recsize;                        /* Size of retrieved message from queue */
-	MSG_LOGO reclogo;                        /* logo of retrieved message     */
-	char     command[MAX_PATH_STR * 4];
-	char     script_args[MAX_PATH_STR * 2];
-	uint8_t  buffer[FULL_EVENT_SIZE];
+	uint8_t buffer[FULL_EVENT_SIZE] = { 0 };
+	_BUFFER_DELIVER_ARG *in_buffer = arg;
 
 /* Tell the main thread we're ok */
-	ProcessEventStatus = THREAD_ALIVE;
-/* Initialization */
+	memcpy(buffer, in_buffer->buffer, in_buffer->size);
+	in_buffer->is_copied = 1;
 
-	do {
-		//WaitSpecificSemaphore_ew(SemaPtr);
+/* */
+	FULL_EVENT_MSG_HEADER *header = (FULL_EVENT_MSG_HEADER *)buffer;
+	_PICKS_TAC_ARG         tac_arg[ThreadsNum];
+/* */
+	FPL_OBSERVE *obs = NULL;
+	FPL_RESULT   best_solution;
+	FPL_RESULT   best_sdv;
+	FPL_RESULT   dbresult[2];
+	FPL_RESULT   ptaxis[2];
+	int          nobs = 0;
+	double       f_score;
+	double       quality;
+	char         fullpath[MAX_PATH_STR];
+	char         command[MAX_PATH_STR * 4];
+	char         script_args[MAX_PATH_STR * 2];
 
-		//res = psk_msgqueue_dequeue( gmtmp, &recsize, &reclogo );
-
-		if ( res == 0 ) {
-		/* */
-			FULL_EVENT_MSG_HEADER *header = (FULL_EVENT_MSG_HEADER *)buffer;
-			FULL_EVENT_PICK_MSG   *pick = (FULL_EVENT_PICK_MSG *)(header + 1);
-			FPL_OBSERVE *obs = NULL;
-			FPL_RESULT   best_solution;
-			FPL_RESULT   best_sdv;
-			FPL_RESULT   dbresult[2];
-			FPL_RESULT   ptaxis[2];
-			int          nobs = 0;
-			double       f_score;
-			double       quality;
-		/* Get the take-off angle & azimuth of all the picks */
-		/* Maybe need to generate the calculating function's threads */
-			for ( int i = 0; i < header->npicks; i++, pick++ )
-				cal_pick_tko_azi( pick, header->evlat, header->evlon, header->evdepth );
-		/* */
-			if ( (nobs = pack_picks_to_observes( &obs, buffer )) < 10 )
-				goto end_event;
-		/* */
-			cal_focal_ga( &best_solution, &best_sdv, &f_score, &quality, obs, nobs );
-			fpl_dbcouple( &best_solution, dbresult, &ptaxis[FPLF_T_AXIS], &ptaxis[FPLF_P_AXIS] );
-			plot_focal_result( dbresult, ptaxis, &best_sdv, obs, nobs, f_score, quality, buffer, ReportPath );
-		/* Post to the Facebook or other place by external script */
-		 	gen_script_command_args( script_args, buffer, dbresult, ptaxis, f_score, quality, nobs );
-			for ( int i = 0; i < NumPostScripts; i++ ) {
-				if ( PostScripts[i].min_magnitude <= header->magnitude ) {
-					logit("o", "focalmech_ga: Executing the script: '%s'\n", PostScripts[i].script);
-					sprintf(command, "%s %s", PostScripts[i].script, script_args);
-				/* Execute system command to post focal */
-					if ( system(command) )
-						logit("e", "focalmech_ga: Execute the script: '%s' error, please check it!\n", PostScripts[i].script);
-					else
-						logit("t", "focalmech_ga: Execute the script: '%s' success!\n", PostScripts[i].script);
-				}
-			}
-		/* Remove the plotted shakemaps */
-			if ( RemoveSwitch ) {
-
-			}
-end_event:
-			free(obs);
-		}
-
-	} while ( Finish );
-
-/* we're quitting */
-	ProcessEventStatus = THREAD_ERR;   /* file a complaint to the main thread */
-	KillSelfThread();                  /* main thread will restart us */
-
-	return NULL;
-}
-
-/*
-*/
-static thr_ret thread_plot_shakemap( void *dummy )
-{
-	int  i;
-	char resfilename[MAX_STR_SIZE];
-
-	PlotMapStatus = THREAD_ALIVE;
-
-	for ( i = 0; i < NumPlotShakeMaps; i++ ) {
-	/* Generate the result file name */
-		psk_misc_smfilename_gen( PlotShakeMaps + i, resfilename, MAX_STR_SIZE );
-	/* Plot the shakemap by the plotting functions like PGPLOT or GMT etc. */
-		if ( psk_plot_sm_plot( PlotShakeMaps + i, ReportPath, resfilename ) < 0 ) {
-			logit( "e", "focalmech_ga: Plotting shakemap error; skip it!\n" );
+/* Get the take-off angle & azimuth of all the picks */
+/* Maybe need to generate the calculating function's threads */
+	for ( int i = 0; i < ThreadsNum; i++ ) {
+		tac_arg[i].buffer = buffer;
+		tac_arg[i].proc_thrds = ThreadsNum;
+		tac_arg[i].assign_idx = i;
+		tac_arg[i].is_finish = 0;
+		tpool_add_work( ThrdPool, proc_picks_tac, &tac_arg );
+	}
+/* */
+	for ( int i = 0; i < ThreadsNum; i++ ) {
+		while ( !tac_arg[i].is_finish ) {
+			sleep_ew(10);
 		}
 	}
+/* */
+	if ( (nobs = pack_picks_to_observes( &obs, buffer )) >= MinPickPolarity ) {
+	/* */
+		gen_focalplot_fullpath( fullpath, buffer );
+		cal_focal_ga( &best_solution, &best_sdv, &f_score, &quality, obs, nobs );
+		fpl_dbcouple( &best_solution, dbresult, &ptaxis[FPLF_T_AXIS], &ptaxis[FPLF_P_AXIS] );
+		plot_focal_result( dbresult, ptaxis, &best_sdv, obs, nobs, f_score, quality, buffer, fullpath );
+	/* Post to the Facebook or other place by external script */
+		gen_script_command_args( script_args, buffer, dbresult, ptaxis, f_score, quality, nobs );
+		for ( int i = 0; i < NumPostScripts; i++ ) {
+			if ( PostScripts[i].min_magnitude <= header->magnitude ) {
+				logit("o", "focalmech_ga: Executing the script: '%s'\n", PostScripts[i].script);
+				sprintf(command, "%s %s", PostScripts[i].script, script_args);
+			/* Execute system command to post focal */
+				if ( system(command) )
+					logit("e", "focalmech_ga: Execute the script: '%s' error, please check it!\n", PostScripts[i].script);
+				else
+					logit("t", "focalmech_ga: Execute the script: '%s' success!\n", PostScripts[i].script);
+			}
+		}
+	/* Remove the plotted focal */
+		if ( RemoveSwitch )
+			remove(fullpath);
+	/* */
+		free(obs);
+	}
 
-/* we're quitting
- *****************/
-	PlotMapStatus = THREAD_OFF;  /* fire a complaint to the main thread */
-	KillSelfThread();
-	return NULL;
+	return;
+}
+
+/**
+ * @brief
+ *
+ * @param arg
+ */
+static void proc_picks_tac( void *arg )
+{
+	_PICKS_TAC_ARG        *tac_arg = arg;
+	FULL_EVENT_MSG_HEADER *header = (FULL_EVENT_MSG_HEADER *)tac_arg->buffer;
+	FULL_EVENT_PICK_MSG   *pick = (FULL_EVENT_PICK_MSG *)(header + 1);
+
+	tac_arg->is_finish = 0;
+	for ( int i = tac_arg->assign_idx; i < header->npicks; i += tac_arg->proc_thrds )
+		cal_pick_tko_azi( &pick[i], header->evlat, header->evlon, header->evdepth );
+
+	tac_arg->is_finish = 1;
+
+	return;
 }
 
 /**
@@ -818,21 +816,9 @@ static void plot_focal_result( FPL_RESULT *dbresult, FPL_RESULT *ptaxis, FPL_RES
 	pfocal_pt_axis_plot( ptaxis, PLOT_BEACHBALL_RADIUS );
 	pfocal_observe_plot( obs, nobs, PLOT_BEACHBALL_RADIUS );
 	pfocal_eq_info_plot( year, mon, day, hour, min, sec, header->magnitude, header->evlat, header->evlon, header->evdepth );
-	pfocal_plane_info_plot( dbresult, ptaxis, sdv->strike, sdv->dip, sdv->rake, quality, f_score, PLOT_BEACHBALL_RADIUS );
+	pfocal_plane_info_plot( dbresult, ptaxis, sdv, quality, f_score, PLOT_BEACHBALL_RADIUS );
 /* */
 	pfocal_canva_close();
-
-	return;
-}
-
-/*
-*/
-static void remove_shakemap( const char *reportpath, const char *resfilename )
-{
-	char fullfilepath[MAX_PATH_STR*2];
-
-	sprintf(fullfilepath, "%s%s", reportpath, resfilename);
-	remove(fullfilepath);
 
 	return;
 }
