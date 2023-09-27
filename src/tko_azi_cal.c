@@ -84,9 +84,9 @@ static void step_ray_node( RAY_INFO *, const RAY_INFO *, const double, const dou
 static double get_ray_traveltime( const RAY_INFO *, const int );
 static double get_vel_ray( const RAY_INFO *, const double );
 static double get_vel_geog( const double, const double, const double );
-static void intmap_3d( int *, int *, int * );
+static int intmap_3d( int *, int *, int * );
 static int input_vel_model( const char * );
-static void bldmap( const double, const double );
+static int bldmap( const double, const double );
 static int vel_point2grid( const double *, VEL_GRID *, const int, const int, const int );
 
 static double geog2geoc( const double );
@@ -105,28 +105,28 @@ static double get_earth_radius( double );
  * @param stlo
  * @param stdp
  */
-void tac_main( double *tko, double *azi, double evla, double evlo, double evdp, double stla, double stlo, double stdp )
+int tac_main( double *tko, double *azi, double evla, double evlo, double evdp, double stla, double stlo, double stdp )
 {
 	RAY_INFO ray[MSG_NUMBER + 1];
 	int np;
 	double tt;
 
 /* Check coordinates */
-	if ( evla < -90.0 || evla > 90.0 ) {
+	if ( evla < Lat_c[0] || evla > Lat_c[Nlat_c - 1] ) {
 		fprintf(stderr, "tac_main: Latitude of source is out of range!\n");
-		exit(-1);
+		return -1;
 	}
-	if ( stla < -90.0 || stla > 90.0 ) {
+	if ( stla < Lat_c[0] || stla > Lat_c[Nlat_c - 1] ) {
 		fprintf(stderr, "tac_main: Latitude of station is out of range!\n");
-		exit(-1);
+		return -1;
 	}
-	if ( evlo < -180.0 || evlo > 180.0 ) {
+	if ( evlo < Lon_c[0] || evlo > Lon_c[Nlon_c - 1] ) {
 		fprintf(stderr, "tac_main: Longitude of source is out of range!\n");
-		exit(-1);
+		return -1;
 	}
-	if ( stlo < -180.0 || stlo > 180.0 ) {
+	if ( stlo < Lon_c[0] || stlo > Lon_c[Nlon_c - 1] ) {
 		fprintf(stderr, "tac_main: Longitude of station is out of range!\n");
-		exit(-1);
+		return -1;
 	}
 /* */
 	stla = geog2geoc( stla );
@@ -138,24 +138,26 @@ void tac_main( double *tko, double *azi, double evla, double evlo, double evdp, 
 	printf("# nodes = %d, travel time = %lf\n", np, tt);
 	printf("takeoff = %lf, azimuth = %lf\n", *tko * FOCAL_GA_RAD2DEG, *azi * FOCAL_GA_RAD2DEG);
 
-	return;
+	return 0;
 }
 
 /**
  * @brief
  *
  * @param model_path
+ * @return int
  */
-void tac_velmod_load( const char *model_path )
+int tac_velmod_load( const char *model_path )
 {
-	printf("Starting input 3D Model!\n");
-	input_vel_model(model_path);
-	printf("3D Model input finished!\n");
-	vel_point2grid(Vel_p, Vel_grid, Nxyz_c, Nxy_c, Nx_c);
+/* */
+	if ( input_vel_model( model_path ) )
+		return -1;
+/* */
+	vel_point2grid( Vel_p, Vel_grid, Nxyz_c, Nxy_c, Nx_c );
 	free(Vel_p);
 	free(Vel_s);
 
-	return;
+	return 0;
 }
 
 /**
@@ -532,7 +534,7 @@ static void raytracing_pb( double evla, double evlo, double evdp, double stla, d
 					 * y podgoniaet normalno reshenie (mozhet bit)
 					 */
 						if ( rcur < 0.0 ) {
-							fprintf(stderr, "pbr: Got negative Rc!\n");
+							fprintf(stderr, "raytracing_pb: Got negative Rc!\n");
 							rcur = fabs(rcur);
 						}
 					/* */
@@ -796,7 +798,8 @@ static double get_vel_geog( const double lon, const double lat, const double dep
 	jp = (int)(lat * Ibld3);
 	kp = (int)(dep * Ibld4);
 
-	intmap_3d(&ip, &jp, &kp);
+	if ( intmap_3d(&ip, &jp, &kp) )
+		return 0.0;
 
 	lonf = Lon_c[ip];
 	lonf = (lon - lonf) / (Lon_c[ip + 1] - lonf);
@@ -850,7 +853,7 @@ static double get_vel_geog( const double lon, const double lat, const double dep
  * @param jp
  * @param kp
  */
-static void intmap_3d( int *ip, int *jp, int *kp )
+static int intmap_3d( int *ip, int *jp, int *kp )
 {
 	const int lon = *ip;
 	const int lat = *jp;
@@ -871,14 +874,14 @@ static void intmap_3d( int *ip, int *jp, int *kp )
 		fprintf(stderr, "intmap_3d: ERROR!!! lon, lat and dep out of range: exiting!\n" );
 		fprintf(stderr, "lon=%lf, lat=%lf, dep=%lf\n", (double)lon / Ibld3, (double)lat / Ibld3, (double)dep / Ibld4);
 		fprintf(stderr, "ip=%d, jp=%d, kp=%d\n", *ip, *jp, *kp);
-		exit(-1);
+		return -1;
 	}
 /* */
 	*ip = Ilon_c[*ip];
 	*jp = Ilat_c[*jp];
 	*kp = Idep_c[*kp];
 
-	return;
+	return 0;
 }
 
 /**
@@ -897,12 +900,12 @@ static int input_vel_model( const char *modelfile )
 
 /* */
 	if ( (fp = fopen(modelfile, "r")) == NULL ) {
-		fprintf(stderr, "input_vel_model: Openint VPVSMOD file ERROR; exiting!\n" );
-		exit(-1);
+		fprintf(stderr, "input_vel_model: Opened %s file ERROR; exiting!\n", modelfile);
+		return -1;
 	}
 	if ( fscanf(fp, "%lf %lf %d %d %d\n", &bld3, &bld4, &Nlon_c, &Nlat_c, &Ndep_c) != 5 ) {
 		fprintf(stderr, "input_vel_model: Reading VpVs Model header ERROR; exiting!\n" );
-		exit(-1);
+		return -1;
 	}
 /* */
 	Lon_c = calloc(Nlon_c, sizeof(double));
@@ -917,19 +920,19 @@ static int input_vel_model( const char *modelfile )
 	Vel_s = calloc(Nxyz_c, sizeof(double));
 	Vel_grid = calloc(Nxyz_c, sizeof(VEL_GRID));
 /* */
-	if ( fgets( fracline, sizeof(fracline) - 1, fp ) != NULL ) {
+	if ( fgets(fracline, sizeof(fracline) - 1, fp) != NULL ) {
 		ptrtmp = Lon_c;
 		for ( int i = 0; i < Nlon_c; i++ ) {
 			if ( i < Nlon_c - 1 ) {
-				if ( sscanf( fracline, " %lf %[^\n]", ptrtmp, fracline) != 2 ) {
+				if ( sscanf(fracline, " %lf %[^\n]", ptrtmp, fracline) != 2 ) {
 					fprintf(stderr, "input_vel_model: Reading VpVs Model lon_c ERROR; exiting!\n" );
-					exit(-1);
+					return -1;
 				}
 			}
 			else {
-				if ( sscanf( fracline, "%lf", ptrtmp ) != 1 ) {
+				if ( sscanf(fracline, "%lf", ptrtmp) != 1 ) {
 					fprintf(stderr, "input_vel_model: Reading VpVs Model lon_c ERROR; exiting!\n" );
-					exit(-1);
+					return -1;
 				}
 			}
 			ptrtmp++;
@@ -942,13 +945,13 @@ static int input_vel_model( const char *modelfile )
 			if ( i < Nlat_c - 1 ) {
 				if ( sscanf( fracline, "%lf %[^\n]", ptrtmp, fracline ) != 2 ) {
 					printf("Reading VpVs Model lat_c error; exiting!\n");
-					exit(-1);
+					return -1;
 				}
 			}
 			else {
 				if ( sscanf( fracline, "%lf", ptrtmp ) != 1 ) {
 					fprintf(stderr, "input_vel_model: Reading VpVs Model lat_c ERROR; exiting!\n" );
-					exit(-1);
+					return -1;
 				}
 			}
 			ptrtmp++;
@@ -961,13 +964,13 @@ static int input_vel_model( const char *modelfile )
 			if ( i < Ndep_c - 1 ) {
 				if ( sscanf( fracline, "%lf %[^\n]", ptrtmp, fracline ) != 2 ) {
 					fprintf(stderr, "input_vel_model: Reading VpVs Model dep_c ERROR; exiting!\n" );
-					exit(-1);
+					return -1;
 				}
 			}
 			else {
 				if ( sscanf( fracline, "%lf", ptrtmp ) != 1 ) {
 					fprintf(stderr, "input_vel_model: Reading VpVs Model dep_c ERROR; exiting!\n" );
-					exit(-1);
+					return -1;
 				}
 			}
 			ptrtmp++;
@@ -977,18 +980,18 @@ static int input_vel_model( const char *modelfile )
 	ptrtmp = Vel_p;
 	for ( int k = 0; k < Ndep_c; k++ ) {
 		for ( int j = 0; j < Nlat_c; j++ ) {
-			if ( fgets( fracline, sizeof(fracline) - 1, fp ) != NULL ) {
+			if ( fgets(fracline, sizeof(fracline) - 1, fp) != NULL ) {
 				for ( int i = 0; i < Nlon_c; i++ ) {
 					if ( i < Nlon_c - 1 ) {
-						if ( sscanf( fracline, "%lf %[^\n]", ptrtmp, fracline ) != 2 ) {
+						if ( sscanf(fracline, "%lf %[^\n]", ptrtmp, fracline) != 2 ) {
 							fprintf(stderr, "input_vel_model: Reading VpVs Model Vel_p ERROR; exiting!\n" );
-							exit(-1);
+							return -1;
 						}
 					}
 					else {
-						if ( sscanf( fracline, "%lf", ptrtmp ) != 1 ) {
+						if ( sscanf(fracline, "%lf", ptrtmp) != 1 ) {
 							fprintf(stderr, "input_vel_model: Reading VpVs Model Vel_p ERROR; exiting!\n" );
-							exit(-1);
+							return -1;
 						}
 					}
 					ptrtmp++;
@@ -1005,13 +1008,13 @@ static int input_vel_model( const char *modelfile )
 					if ( i < Nlon_c - 1 ) {
 						if ( sscanf( fracline, "%lf %[^\n]", ptrtmp, fracline ) != 2 ) {
 							fprintf(stderr, "input_vel_model: Reading VpVs Model Vel_s ERROR; exiting!\n" );
-							exit(-1);
+							return -1;
 						}
 					}
 					else {
 						if ( sscanf( fracline, "%lf", ptrtmp ) != 1 ) {
 							fprintf(stderr, "input_vel_model: Reading VpVs Model Vel_s ERROR; exiting!\n" );
-							exit(-1);
+							return -1;
 						}
 					}
 					ptrtmp++;
@@ -1022,7 +1025,8 @@ static int input_vel_model( const char *modelfile )
 /* */
 	fclose(fp);
 /* */
-	bldmap( bld3, bld4 );
+	if ( bldmap( bld3, bld4 ) )
+		return -1;
 
 /*
  * Nx2_c = Nlon_c - 2;
@@ -1044,8 +1048,9 @@ static int input_vel_model( const char *modelfile )
  *
  * @param bld3
  * @param bld4
+ * @return int
  */
-static void bldmap( const double bld3, const double bld4 )
+static int bldmap( const double bld3, const double bld4 )
 {
 	int matrix_index;
 /* For crustal velocity */
@@ -1059,7 +1064,7 @@ static void bldmap( const double bld3, const double bld4 )
 
 	if ( Ilonmax > MSG_NUMBER || Ilatmax > MSG_NUMBER || Idepmax > MSG_NUMBER ) {
 		fprintf(stderr, "bldmap: ERROR!! Model dimension too big (Max. %d)!\n", MSG_NUMBER);
-		exit(-1);
+		return -1;
 	}
 
 	Ilon_c = calloc(Ilonmax, sizeof(int));
@@ -1095,7 +1100,7 @@ static void bldmap( const double bld3, const double bld4 )
 	Ibld4 = (int)(1.0 / bld4 + EPS);
 
 //printf("%d %d %d %lf\n", Ilon1_c, Ilat1_c, Idep1_c);
-	return;
+	return 0;
 }
 
 /**

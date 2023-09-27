@@ -1,3 +1,14 @@
+# Ignore the execute files
+*.out
+
+# Ignore the object files.
+*.o
+
+# Ignore the library files.
+*.a
+*.so
+
+# Ignore vscode
 /.vscode
 /GaFpfit.f90
 /twfocal
