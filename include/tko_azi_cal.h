@@ -10,6 +10,6 @@
  */
 #pragma once
 
-void tac_main( double *, double *, double, double, double, double, double, double );
-void tac_velmod_load( const char * );
+int tac_main( double *, double *, double, double, double, double, double, double );
+int tac_velmod_load( const char * );
 void tac_velmod_free( void );

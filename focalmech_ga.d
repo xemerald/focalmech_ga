@@ -11,21 +11,29 @@ HeartBeatInterval   15              # seconds between heartbeats
 
 QueueSize           50              # max messages in internal circular msg buffer
 
-RemoveShakeMap      0               # 0 to keep those shakemap files; 1 to remove those
+RemoveFocalPlot     0               # 0 to keep those plot files; 1 to remove those
                                     # files after posted. Defaults to 0 if this is not setted
+
+# Parameters for main Genetic Algorithm:
+#
+IterationNum        20              # maximum iteration times, defaults to 20
+Population          800             # population number for one generation, defaults to 800
+MutateBits          3               # number of bit for mutation once, defaults to 3
+ReprodutionRate     0.036           # ratio of population for reproduction, defaults to 0.036 (3.6%)
+MutateRate          0.72            # ratio of population for mutation, defaults to 0.72 (72%)
 
 # Directory to create the report files:
 #
 ReportPath           /home/.../ew/run/focalmechs
 
-# File define the target zone & city boundary in latitude & longtitude
+# File define the 3D P-wave & S-wave velocity model
 #
-3DVelocityModelFile     /home/.../ew/run/params/VPVSMOD.txt
+VelocityModelFile     /home/.../ew/run/params/VPVSMOD.txt
 
 # Post to the other place:
 # This function is designed especially for executing external script.
-# And it will be called like this: "script_name start_time end_time report_time max_magnitude trigstations
-# result_filename_1 [result_filename_2]..."
+# And it will be called like this: "script_name report_time magnitude trigstations
+# result_filename_1"
 # If you don't want to use it, please comment it out!
 #
 # PostScript            /home/.../ew/run/params/post_facebook.py

@@ -5,6 +5,7 @@
 #include <math.h>
 #include <float.h>
 
+#include <constants.h>
 #include <ga_core.h>
 #include <fpl_func.h>
 
@@ -96,21 +97,21 @@ int fpl_result_refine( FPL_RESULT *results, FPL_RESULT *sdv, int nresult )
 /* */
 	memset(rhist, 0, sizeof(rhist));
 	for ( int i = 0; i < nresult; i++ ) {
-		if ( results[i].strike > FPLF_PI2 )
-			results[i].strike -= FPLF_PI2;
+		if ( results[i].strike > FOCAL_GA_PI2 )
+			results[i].strike -= FOCAL_GA_PI2;
 		else if ( results[i].strike < 0.0 )
-			results[i].strike += FPLF_PI2;
+			results[i].strike += FOCAL_GA_PI2;
 	/* */
 		fpl_dbcouple( &results[i], dbresult, NULL, NULL );
 		for ( int j = 0; j < 2; j++ ) {
 		/* */
-			if ( dbresult[j].strike > FPLF_PI2 )
-				dbresult[j].strike -= FPLF_PI2;
+			if ( dbresult[j].strike > FOCAL_GA_PI2 )
+				dbresult[j].strike -= FOCAL_GA_PI2;
 			else if ( dbresult[j].strike < 0.0 )
-				dbresult[j].strike += FPLF_PI2;
+				dbresult[j].strike += FOCAL_GA_PI2;
 		/* */
 			if ( dbresult[j].rake < 0.0)
-				dbresult[j].rake += FPLF_PI2;
+				dbresult[j].rake += FOCAL_GA_PI2;
 		}
 	/* */
 		if ( dbresult[0].strike < dbresult[1].strike )
@@ -124,14 +125,14 @@ int fpl_result_refine( FPL_RESULT *results, FPL_RESULT *sdv, int nresult )
 	nresult = remove_approx_result( _results, nresult );
 /* */
 	for ( int i = 0; i < nresult; i++ ) {
-		int istr  = (int)(_results[i].strike / FPLF_PI2 * 9.0);
-		int idip  = (int)(_results[i].dip / FPLF_HALF_PI * 9.0);
-		int irake = (int)(_results[i].rake / FPLF_PI2 * 9.0);
+		int istr  = (int)(_results[i].strike / FOCAL_GA_PI2 * 9.0);
+		int idip  = (int)(_results[i].dip / FOCAL_GA_HALF_PI * 9.0);
+		int irake = (int)(_results[i].rake / FOCAL_GA_PI2 * 9.0);
 	/* */
 		if ( !rhist[istr][idip][irake].count ) {
-			rhist[istr][idip][irake].strike = istr * FPLF_PI2 / 9.0 + FPLF_PI / 9.0;
-			rhist[istr][idip][irake].dip = idip * FPLF_HALF_PI / 9.0 + FPLF_HALF_PI / 18.0;
-			rhist[istr][idip][irake].rake = irake * FPLF_PI2 / 9.0 + FPLF_PI / 9.0;
+			rhist[istr][idip][irake].strike = istr * FOCAL_GA_PI2 / 9.0 + FOCAL_GA_PI / 9.0;
+			rhist[istr][idip][irake].dip = idip * FOCAL_GA_HALF_PI / 9.0 + FOCAL_GA_HALF_PI / 18.0;
+			rhist[istr][idip][irake].rake = irake * FOCAL_GA_PI2 / 9.0 + FOCAL_GA_PI / 9.0;
 		/* */
 			rhist[istr][idip][irake].best_diff = fabs(_results[i].strike - rhist[istr][idip][irake].strike) + fabs(_results[i].dip - rhist[istr][idip][irake].dip) + fabs(_results[i].rake - rhist[istr][idip][irake].rake);
 			rhist[istr][idip][irake].best_ptr = &_results[i];
@@ -153,42 +154,42 @@ int fpl_result_refine( FPL_RESULT *results, FPL_RESULT *sdv, int nresult )
 	/* */
 		for ( int j = 0; j < 2; j++ ) {
 		/* */
-			if ( dbresult[j].strike > FPLF_PI2 )
-				dbresult[j].strike -= FPLF_PI2;
+			if ( dbresult[j].strike > FOCAL_GA_PI2 )
+				dbresult[j].strike -= FOCAL_GA_PI2;
 			else if ( dbresult[j].strike < 0.0 )
-				dbresult[j].strike += FPLF_PI2;
+				dbresult[j].strike += FOCAL_GA_PI2;
 		/* */
 			if ( dbresult[j].rake < 0.0)
-				dbresult[j].rake += FPLF_PI2;
-			else if ( dbresult[j].rake > FPLF_PI2 )
-				dbresult[j].rake -= FPLF_PI2;
+				dbresult[j].rake += FOCAL_GA_PI2;
+			else if ( dbresult[j].rake > FOCAL_GA_PI2 )
+				dbresult[j].rake -= FOCAL_GA_PI2;
 		/* */
 			for ( int k = 0; k < nsolution; k++ ) {
-				if ( is_same_group_result( &dbresult[j], &solutions[k], 90.0 * FPLF_DEG2RAD ) ) {
+				if ( is_same_group_result( &dbresult[j], &solutions[k], 90.0 * FOCAL_GA_DEG2RAD ) ) {
 					resflag[i] = k;
 					_results[i] = dbresult[j];
 					break;
 				}
 			/* */
-				if ( dbresult[j].strike < FPLF_PI )
-					dbresult[j].strike += FPLF_PI;
+				if ( dbresult[j].strike < FOCAL_GA_PI )
+					dbresult[j].strike += FOCAL_GA_PI;
 				else
-					dbresult[j].strike -= FPLF_PI;
+					dbresult[j].strike -= FOCAL_GA_PI;
 
-				if ( dbresult[j].dip > FPLF_HALF_PI * 0.5 ) {
-					dbresult[j].dip  = FPLF_PI - dbresult[j].dip;
+				if ( dbresult[j].dip > FOCAL_GA_HALF_PI * 0.5 ) {
+					dbresult[j].dip  = FOCAL_GA_PI - dbresult[j].dip;
 					dbresult[j].rake = -1.0 * dbresult[j].rake;
 				}
 				else {
 					dbresult[j].dip  = -1.0 * dbresult[j].dip;
-					dbresult[j].rake = FPLF_PI + dbresult[j].rake;
+					dbresult[j].rake = FOCAL_GA_PI + dbresult[j].rake;
 				}
 
 				if ( dbresult[j].rake < 0.0 )
-					dbresult[j].rake += FPLF_PI2;
-				if ( dbresult[j].rake > FPLF_PI2 )
-					dbresult[j].rake -= FPLF_PI2;
-				if ( is_same_group_result( &dbresult[j], &solutions[k], 90.0 * FPLF_DEG2RAD ) ) {
+					dbresult[j].rake += FOCAL_GA_PI2;
+				if ( dbresult[j].rake > FOCAL_GA_PI2 )
+					dbresult[j].rake -= FOCAL_GA_PI2;
+				if ( is_same_group_result( &dbresult[j], &solutions[k], 90.0 * FOCAL_GA_DEG2RAD ) ) {
 					resflag[i] = k;
 					_results[i] = dbresult[j];
 					break;
@@ -260,35 +261,35 @@ int fpl_result_refine( FPL_RESULT *results, FPL_RESULT *sdv, int nresult )
 			_sdv[i].rake = 2.0 * sqrt(_sdv[i].rake / nn);
 		}
 		else {
-			_sdv[i].strike = 1.4 * FPLF_DEG2RAD;
-			_sdv[i].dip = 1.4 * FPLF_DEG2RAD;
-			_sdv[i].rake = 1.4 * FPLF_DEG2RAD;
+			_sdv[i].strike = 1.4 * FOCAL_GA_DEG2RAD;
+			_sdv[i].dip = 1.4 * FOCAL_GA_DEG2RAD;
+			_sdv[i].rake = 1.4 * FOCAL_GA_DEG2RAD;
 		}
 	/* */
-		if ( _sdv[i].strike < FPLF_DEG2RAD )
-			_sdv[i].strike = FPLF_DEG2RAD;
-		if ( _sdv[i].dip < FPLF_DEG2RAD )
-			_sdv[i].dip = FPLF_DEG2RAD;
-		if ( _sdv[i].rake < FPLF_DEG2RAD )
-			_sdv[i].rake = FPLF_DEG2RAD;
+		if ( _sdv[i].strike < FOCAL_GA_DEG2RAD )
+			_sdv[i].strike = FOCAL_GA_DEG2RAD;
+		if ( _sdv[i].dip < FOCAL_GA_DEG2RAD )
+			_sdv[i].dip = FOCAL_GA_DEG2RAD;
+		if ( _sdv[i].rake < FOCAL_GA_DEG2RAD )
+			_sdv[i].rake = FOCAL_GA_DEG2RAD;
 	/* */
-		if ( solutions[i].dip > FPLF_HALF_PI ) {
-			solutions[i].strike = solutions[i].strike + FPLF_PI;
-			solutions[i].dip = FPLF_PI - solutions[i].dip;
-			solutions[i].rake = FPLF_PI2 - solutions[i].rake;
+		if ( solutions[i].dip > FOCAL_GA_HALF_PI ) {
+			solutions[i].strike = solutions[i].strike + FOCAL_GA_PI;
+			solutions[i].dip = FOCAL_GA_PI - solutions[i].dip;
+			solutions[i].rake = FOCAL_GA_PI2 - solutions[i].rake;
 		}
 		else if ( solutions[i].dip < 0.0 ) {
-			solutions[i].strike = solutions[i].strike + FPLF_PI;
+			solutions[i].strike = solutions[i].strike + FOCAL_GA_PI;
 			solutions[i].dip = -1.0 * solutions[i].dip;
-			solutions[i].rake = FPLF_PI2 - solutions[i].rake;
+			solutions[i].rake = FOCAL_GA_PI2 - solutions[i].rake;
 		}
 
-		if ( solutions[i].strike > FPLF_PI2)
-			solutions[i].strike -= FPLF_PI2;
-		if ( solutions[i].rake > FPLF_PI )
-			solutions[i].rake -= FPLF_PI2;
-		if ( solutions[i].rake < -FPLF_PI )
-			solutions[i].rake += FPLF_PI2;
+		if ( solutions[i].strike > FOCAL_GA_PI2)
+			solutions[i].strike -= FOCAL_GA_PI2;
+		if ( solutions[i].rake > FOCAL_GA_PI )
+			solutions[i].rake -= FOCAL_GA_PI2;
+		if ( solutions[i].rake < -FOCAL_GA_PI )
+			solutions[i].rake += FOCAL_GA_PI2;
 	/* Passing the solutions */
 		results[_nresult] = solutions[i];
 		sdv[_nresult] = _sdv[i];
@@ -317,15 +318,15 @@ double fpl_quality_cal( FPL_OBSERVE *observes, const int nobs, const double f_sc
 
 /* Find Gap Quality */
 	qsort(observes, nobs, sizeof(FPL_OBSERVE), compare_azimuth);
-	double gap = observes[0].azimuth + FPLF_PI2 - observes[nobs - 1].azimuth;
+	double gap = observes[0].azimuth + FOCAL_GA_PI2 - observes[nobs - 1].azimuth;
 	for ( int i = 1; i < nobs; i++ ) {
 		if( (observes[i].azimuth - observes[i - 1].azimuth) > gap )
 			gap = observes[i].azimuth - observes[i - 1].azimuth;
 	}
-	if ( gap >= FPLF_PI )
+	if ( gap >= FOCAL_GA_PI )
 		quality_gap = 0.0;
 	else
-		quality_gap = (FPLF_PI - gap) / FPLF_HALF_PI;
+		quality_gap = (FOCAL_GA_PI - gap) / FOCAL_GA_HALF_PI;
 
 /* Find # Quality */
 	if ( nobs < 10 )
@@ -414,9 +415,9 @@ FPL_RESULT *fpl_dbcouple( FPL_RESULT *plane, FPL_RESULT plane_couple[2], FPL_RES
 	else
 		plane_couple[1].strike = -val;
 	if ( plane_couple[1].strike < 0.0 )
-		plane_couple[1].strike += FPLF_PI2;
-	else if ( plane_couple[1].strike >= FPLF_PI2 )
-		plane_couple[1].strike -= FPLF_PI2;
+		plane_couple[1].strike += FOCAL_GA_PI2;
+	else if ( plane_couple[1].strike >= FOCAL_GA_PI2 )
+		plane_couple[1].strike -= FOCAL_GA_PI2;
 
 	if ( fp23 < 0.0 ) {
 		x = -x;
@@ -467,9 +468,9 @@ FPL_RESULT *fpl_dbcouple( FPL_RESULT *plane, FPL_RESULT plane_couple[2], FPL_RES
 			axis_t->strike = -val;
 
 		if ( axis_t->strike < 0.0 )
-			axis_t->strike += FPLF_PI2;
-		else if ( axis_t->strike >= FPLF_PI2 )
-			axis_t->strike -= FPLF_PI2;
+			axis_t->strike += FOCAL_GA_PI2;
+		else if ( axis_t->strike >= FOCAL_GA_PI2 )
+			axis_t->strike -= FOCAL_GA_PI2;
 	}
 
 /* Calculation of P-axis */
@@ -504,9 +505,9 @@ FPL_RESULT *fpl_dbcouple( FPL_RESULT *plane, FPL_RESULT plane_couple[2], FPL_RES
 		else
 			axis_p->strike = -val;
 		if ( axis_p->strike < 0.0 )
-			axis_p->strike += FPLF_PI2;
-		else if ( axis_p->strike >= FPLF_PI2 )
-			axis_p->strike -= FPLF_PI2;
+			axis_p->strike += FOCAL_GA_PI2;
+		else if ( axis_p->strike >= FOCAL_GA_PI2 )
+			axis_p->strike -= FOCAL_GA_PI2;
 	}
 
 	return plane_couple;
@@ -521,8 +522,8 @@ FPL_RESULT *fpl_dbcouple( FPL_RESULT *plane, FPL_RESULT plane_couple[2], FPL_RES
 FPL_OBSERVE fpl_observe_deg2rad( FPL_OBSERVE *input )
 {
 	return (FPL_OBSERVE){
-		.azimuth = input->azimuth * FPLF_DEG2RAD,
-		.takeoff = input->takeoff * FPLF_DEG2RAD,
+		.azimuth = input->azimuth * FOCAL_GA_DEG2RAD,
+		.takeoff = input->takeoff * FOCAL_GA_DEG2RAD,
 		.polarity = input->polarity
 	};
 }
@@ -536,8 +537,8 @@ FPL_OBSERVE fpl_observe_deg2rad( FPL_OBSERVE *input )
 FPL_OBSERVE fpl_observe_rad2deg( FPL_OBSERVE *input )
 {
 	return (FPL_OBSERVE){
-		.azimuth = input->azimuth * FPLF_RAD2DEG,
-		.takeoff = input->takeoff * FPLF_RAD2DEG,
+		.azimuth = input->azimuth * FOCAL_GA_RAD2DEG,
+		.takeoff = input->takeoff * FOCAL_GA_RAD2DEG,
 		.polarity = input->polarity
 	};
 }
@@ -551,9 +552,9 @@ FPL_OBSERVE fpl_observe_rad2deg( FPL_OBSERVE *input )
 FPL_RESULT fpl_result_deg2rad( FPL_RESULT *input )
 {
 	return (FPL_RESULT){
-		.dip = input->dip * FPLF_DEG2RAD,
-		.strike = input->strike * FPLF_DEG2RAD,
-		.rake = input->rake * FPLF_DEG2RAD
+		.dip = input->dip * FOCAL_GA_DEG2RAD,
+		.strike = input->strike * FOCAL_GA_DEG2RAD,
+		.rake = input->rake * FOCAL_GA_DEG2RAD
 	};
 }
 
@@ -566,32 +567,32 @@ FPL_RESULT fpl_result_deg2rad( FPL_RESULT *input )
 FPL_RESULT fpl_result_rad2deg( FPL_RESULT *input )
 {
 	return (FPL_RESULT){
-		.dip = input->dip * FPLF_RAD2DEG,
-		.strike = input->strike * FPLF_RAD2DEG,
-		.rake = input->rake * FPLF_RAD2DEG
+		.dip = input->dip * FOCAL_GA_RAD2DEG,
+		.strike = input->strike * FOCAL_GA_RAD2DEG,
+		.rake = input->rake * FOCAL_GA_RAD2DEG
 	};
 }
 
 /**
  * @brief
  *
- * @param str
+ * @param strike
  * @param dip
  * @param rake
  * @return uint32_t
  */
-static uint32_t encode_gene_ga( const double str, const double dip, const double rake )
+static uint32_t encode_gene_ga( const double strike, const double dip, const double rake )
 {
 	uint32_t result;
-	uint32_t istr = (uint32_t)(str / FPLF_PI2 * 512.0);
-	uint32_t idip = (uint32_t)(dip / FPLF_HALF_PI * 128.0);
-	uint32_t irake = (uint32_t)(rake / FPLF_PI2 * 512.0);
+	uint32_t istrike = (uint32_t)(strike / FOCAL_GA_PI2 * 512.0);
+	uint32_t idip = (uint32_t)(dip / FOCAL_GA_HALF_PI * 128.0);
+	uint32_t irake = (uint32_t)(rake / FOCAL_GA_PI2 * 512.0);
 
 	result = irake & GA_CORE_RAKE_MASK;
 	result <<= GA_CORE_RAKE_BITS;
 	result |= idip & GA_CORE_DIP_MASK;
 	result <<= GA_CORE_DIP_BITS;
-	result |= istr & GA_CORE_STRIKE_MASK;
+	result |= istrike & GA_CORE_STRIKE_MASK;
 
 	return result;
 }
@@ -599,26 +600,26 @@ static uint32_t encode_gene_ga( const double str, const double dip, const double
 /**
  * @brief
  *
- * @param str
+ * @param strike
  * @param dip
  * @param rake
  * @param gene
  */
-static void decode_gene_ga( double *str, double *dip, double *rake, uint32_t gene )
+static void decode_gene_ga( double *strike, double *dip, double *rake, uint32_t gene )
 {
-	uint32_t istr;
+	uint32_t istrike;
 	uint32_t idip;
 	uint32_t irake;
 
-	istr = gene & GA_CORE_STRIKE_MASK;
+	istrike = gene & GA_CORE_STRIKE_MASK;
 	gene >>= GA_CORE_STRIKE_BITS;
 	idip = gene & GA_CORE_DIP_MASK;
 	gene >>= GA_CORE_DIP_BITS;
 	irake = gene & GA_CORE_RAKE_MASK;
 
-	*str  = istr * FPLF_PI2 / 512.0;
-	*dip  = idip * FPLF_HALF_PI / 128.0;
-	*rake = irake * FPLF_PI2 / 512.0;
+	*strike = istrike * FPLF_DECODE_RAD_CONST;
+	*dip = idip * FPLF_DECODE_RAD_CONST;
+	*rake = irake * FPLF_DECODE_RAD_CONST;
 
 	return;
 }
@@ -633,17 +634,15 @@ static void decode_gene_ga( double *str, double *dip, double *rake, uint32_t gen
  */
 static double cal_gene_score_ga( const uint32_t gene, void *observes, const int nobs )
 {
-	double str, dip, rake;
-	double azi, tko, ud;
-	int    n = 0;
+	FPL_OBSERVE *_observe;
+	double strike, dip, rake;
+	int n = 0;
 
-	decode_gene_ga( &str, &dip, &rake, gene );
+	decode_gene_ga( &strike, &dip, &rake, gene );
 
-	for ( int i = 0; i < nobs; i++ ) {
-		azi = ((FPL_OBSERVE *)observes)[i].azimuth;
-		tko = ((FPL_OBSERVE *)observes)[i].takeoff;
-		ud  = ((FPL_OBSERVE *)observes)[i].polarity;
-		if ( (cal_amp( str, dip, rake, azi, tko ) * ud) > 0.0 )
+	_observe = observes;
+	for ( int i = 0; i < nobs; i++, _observe++ ) {
+		if ( (cal_amp( strike, dip, rake, _observe->azimuth, _observe->takeoff ) * _observe->polarity) > 0.0 )
 			n++;
 		else
 			n--;
@@ -692,7 +691,7 @@ static double cal_amp( double strike, double dip, double slip, double azimuth, d
 static int remove_approx_result( FPL_RESULT *results, int nresult )
 {
 /* */
-	static const double appox_rad = FPLF_APPOX_DEG * FPLF_DEG2RAD;
+	static const double appox_rad = FPLF_APPOX_DEG * FOCAL_GA_DEG2RAD;
 /* */
 	FPL_RESULT *curr_result = results;
 	FPL_RESULT *next_result = curr_result + 1;
@@ -735,35 +734,35 @@ static int is_same_group_result( FPL_RESULT *input, const FPL_RESULT *best, cons
 	/* */
 		return 1;
 	}
-	else if ( strike_diff < limit_diff && dip_diff < limit_diff && (FPLF_PI2 - rake_diff) < limit_diff ) {
+	else if ( strike_diff < limit_diff && dip_diff < limit_diff && (FOCAL_GA_PI2 - rake_diff) < limit_diff ) {
 	/* */
 		if ( best->rake < limit_diff )
-			input->rake -= FPLF_PI2;
+			input->rake -= FOCAL_GA_PI2;
 		else
-			input->rake += FPLF_PI2;
+			input->rake += FOCAL_GA_PI2;
 	/* */
 		return 1;
 	}
-	else if ( (FPLF_PI2 - strike_diff) < limit_diff && dip_diff < limit_diff && rake_diff < limit_diff ) {
+	else if ( (FOCAL_GA_PI2 - strike_diff) < limit_diff && dip_diff < limit_diff && rake_diff < limit_diff ) {
 	/* */
 		if ( best->strike < limit_diff )
-			input->strike -= FPLF_PI2;
+			input->strike -= FOCAL_GA_PI2;
 		else
-			input->strike += FPLF_PI2;
+			input->strike += FOCAL_GA_PI2;
 	/* */
 		return 1;
 	}
-	else if ( (FPLF_PI2 - strike_diff) < limit_diff && dip_diff < limit_diff && (FPLF_PI2 - rake_diff) < limit_diff ) {
+	else if ( (FOCAL_GA_PI2 - strike_diff) < limit_diff && dip_diff < limit_diff && (FOCAL_GA_PI2 - rake_diff) < limit_diff ) {
 	/* */
 		if ( best->strike < limit_diff )
-			input->strike -= FPLF_PI2;
+			input->strike -= FOCAL_GA_PI2;
 		else
-			input->strike += FPLF_PI2;
+			input->strike += FOCAL_GA_PI2;
 	/* */
 		if ( best->rake < limit_diff )
-			input->rake -= FPLF_PI2;
+			input->rake -= FOCAL_GA_PI2;
 		else
-			input->rake += FPLF_PI2;
+			input->rake += FOCAL_GA_PI2;
 	/* */
 		return 1;
 	}

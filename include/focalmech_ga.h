@@ -18,19 +18,9 @@
 /* */
 #define  DUMMY_MAG              -9.0
 /* */
-#define  PLOT_BEACHBALL_RADIUS  10.0f
+#define  PLOT_BEACHBALL_RADIUS   10.0f
 /* */
 typedef struct {
 	char   script[MAX_PATH_STR];
 	double min_magnitude;
 } POSCRIPT;
-/* */
-typedef struct {
-	char    title[MAX_STR_SIZE];
-	char    caption[MAX_STR_SIZE];
-	double  min_magnitude;
-/* */
-	uint8_t smaptype;
-	uint8_t gmflag[MAX_IN_MSG];
-	void   *gmptr[MAX_IN_MSG];
-} PLOTSMAP;

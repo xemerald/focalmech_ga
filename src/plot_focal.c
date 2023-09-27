@@ -65,7 +65,7 @@ void pfocal_dbplane_plot( FPL_RESULT dbplane[2], const double radius )
 	const double r_sqrt_two = radius * sqrt(2.0);
 
 	for ( int i = 0; i < 2; i++ ) {
-		if ( dbplane[i].dip >= FPLF_HALF_PI )
+		if ( dbplane[i].dip >= FOCAL_GA_HALF_PI )
 			dbplane[i].dip -= 0.0001;
 		else if ( dbplane[i].dip < 0.0001 )
 			dbplane[i].dip += 0.0001;
@@ -75,7 +75,7 @@ void pfocal_dbplane_plot( FPL_RESULT dbplane[2], const double radius )
 		float _x = radius * sin_str;
 		float _y = radius * cos_str;
 		cpgmove(_x, _y);
-		for ( double theta = FPLF_HALF_PI; theta >= -FPLF_HALF_PI; theta -= FPLF_DEG2RAD ) {
+		for ( double theta = FOCAL_GA_HALF_PI; theta >= -FOCAL_GA_HALF_PI; theta -= FOCAL_GA_DEG2RAD ) {
 			double cos_theta = cos(theta);
 			double tmp1 = cos_theta * tan(dbplane[i].dip);
 			double tmp2 = r_sqrt_two * sin(acos(tmp1 / sqrt(tmp1 * tmp1 + 1.0)) * 0.5);
@@ -104,7 +104,7 @@ void pfocal_pt_axis_plot( FPL_RESULT ptaxis[2], const double radius )
 	cpgslw(16);
 	cpgsch(1.0);
 	for ( int i = 0; i < 2; i++ ) {
-		double sii = r_sqrt_two * sin((FPLF_HALF_PI - ptaxis[i].dip) * 0.5);
+		double sii = r_sqrt_two * sin((FOCAL_GA_HALF_PI - ptaxis[i].dip) * 0.5);
 		float _x = sii * sin(ptaxis[i].strike);
 		float _y = sii * cos(ptaxis[i].strike);
 		cpgtext(_x - tmp, _y - tmp, i == FPLF_P_AXIS ? "P" : "T");
@@ -130,11 +130,11 @@ void pfocal_observe_plot( FPL_OBSERVE *observes, const int nobserve, const doubl
 	for ( int i = 0; i < nobserve; i++ ) {
 		if ( fabs(observes[i].polarity - 0.0) < FLT_EPSILON )
 			continue;
-		if ( observes[i].takeoff > FPLF_HALF_PI ) {
-			observes[i].azimuth += FPLF_PI;
-			observes[i].takeoff = FPLF_PI - observes[i].takeoff;
-			if ( observes[i].azimuth > FPLF_PI2 )
-				observes[i].azimuth -= FPLF_PI2;
+		if ( observes[i].takeoff > FOCAL_GA_HALF_PI ) {
+			observes[i].azimuth += FOCAL_GA_PI;
+			observes[i].takeoff = FOCAL_GA_PI - observes[i].takeoff;
+			if ( observes[i].azimuth > FOCAL_GA_PI2 )
+				observes[i].azimuth -= FOCAL_GA_PI2;
 		}
 
 		double rx = r_sqrt_two * sin(observes[i].takeoff * 0.5);
@@ -183,14 +183,12 @@ void pfocal_eq_info_plot( int year, int mon, int day, int hour, int min, double 
  *
  * @param dbplane
  * @param ptaxis
- * @param strike_sdv
- * @param dip_sdv
- * @param rake_sdv
- * @param q
+ * @param sdv
+ * @param quality
  * @param fscore
  * @param radius
  */
-void pfocal_plane_info_plot( FPL_RESULT dbplane[2], FPL_RESULT ptaxis[2], double strike_sdv, double dip_sdv, double rake_sdv, double q, double fscore, const double radius )
+void pfocal_plane_info_plot( FPL_RESULT dbplane[2], FPL_RESULT ptaxis[2], FPL_RESULT *sdv, double quality, double fscore, const double radius )
 {
 	float tmp = radius / 20.0;
 	char str_buf[128] = { 0 };
@@ -239,13 +237,11 @@ void pfocal_plane_info_plot( FPL_RESULT dbplane[2], FPL_RESULT ptaxis[2], double
 	cpgcirc(-11.0, 8.6, tmp);
 	cpgtext(-10.7, 8.6 - tmp, "Up");
 
-	strike_sdv *= FOCAL_GA_RAD2DEG;
-	dip_sdv *= FOCAL_GA_RAD2DEG;
-	rake_sdv *= FOCAL_GA_RAD2DEG;
+	tmpres = fpl_result_rad2deg( sdv );
 	cpgtext(3.5, 11.0, "Fault Plane A Uncertainty");
-	sprintf(str_buf, "Strike+-%3d, Dip+-%3d, Rake+-%3d.", (int)strike_sdv, (int)dip_sdv, (int)rake_sdv);
+	sprintf(str_buf, "Strike+-%3d, Dip+-%3d, Rake+-%3d.", (int)tmpres.strike, (int)tmpres.dip, (int)tmpres.rake);
 	cpgtext(0.8, 10.2, str_buf);
-	sprintf(str_buf, "Quality Index = %5.2f", q);
+	sprintf(str_buf, "Quality Index = %5.2f", quality);
 	cpgtext(4.8, 9.4, str_buf);
 	tmp = (1.0 - fscore) * 0.5;
 	sprintf(str_buf, "Misfit = %5.2f%%", tmp * 100.0);

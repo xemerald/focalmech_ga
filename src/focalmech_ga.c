@@ -30,11 +30,15 @@ static void focalmech_ga_lookup( void );
 static void focalmech_ga_status( unsigned char, short, char * );
 static void focalmech_ga_end( void );  /* Free all the local memory & close socket */
 
+static int cal_focal_ga( FPL_RESULT *, FPL_RESULT *, double *, double *, FPL_OBSERVE *, const int );
+static void plot_focal_result( FPL_RESULT *, FPL_RESULT *, FPL_RESULT *, FPL_OBSERVE *, const int, const double, const double, void *, const char * );
+
+static char *gen_script_command_args( char *, void *, FPL_RESULT [2], FPL_RESULT [2], double, double, int );
+static char *gen_focalplot_fullpath( char *, void * );
 static void split_time( int *, int *, int *, int *, int *, double *, const double );
 
 static SHM_INFO Region;      /* shared memory region to use for i/o    */
 
-#define BUF_SIZE  150000     /* define maximum size for an event msg   */
 #define MAXLOGO   8
 
 static MSG_LOGO Getlogo[MAXLOGO];   /* array for requesting module,type,instid */
@@ -46,13 +50,9 @@ static pid_t    MyPid;              /* for restarts by startstop               *
 #define THREAD_ALIVE  1				/* ComputePGA alive and well            */
 #define THREAD_ERR   -1				/* ComputePGA encountered error quit    */
 
-#define MAX_PLOT_SHAKEMAPS      8
-#define MAX_EMAIL_RECIPIENTS    20
 #define MAX_POST_SCRIPTS        5
-#define DEFAULT_SUBJECT_PREFIX "EEWS"
 
 static volatile int ProcessEventStatus = THREAD_OFF;
-static volatile int MailProcessStatus  = THREAD_OFF;
 static volatile int PlotMapStatus      = THREAD_OFF;
 static volatile _Bool Finish = 0;
 
@@ -63,17 +63,15 @@ static uint8_t  LogSwitch;					/* 0 if no logfile should be written */
 static uint64_t HeartBeatInterval;			/* seconds between heartbeats        */
 static uint64_t QueueSize;					/* max messages in output circular buffer */
 static uint8_t  RemoveSwitch = 0;
-static uint64_t IssueInterval = 30;
 static short    nLogo = 0;
 static char     ReportPath[MAX_PATH_STR];
-static char     SubjectPrefix[MAX_STR_SIZE];     /* defaults to EEWS, settable now */
-static char     EmailProgram[MAX_PATH_STR];      /* Path to the email program */
-static PLOTSMAP PlotShakeMaps[MAX_PLOT_SHAKEMAPS];
-static uint8_t  NumPlotShakeMaps = 0;              /* Number of plotting shakemaps */
 static POSCRIPT PostScripts[MAX_POST_SCRIPTS];
 static uint8_t  NumPostScripts = 0;                /* Number of exec. scripts */
-static char     LinkURLPrefix[MAX_PATH_STR];
-
+static uint8_t  IterationNum    = 20;
+static uint32_t Population      = 800;
+static uint8_t  MutateBits      = 3;
+static double   ReprodutionRate = 0.036;
+static double   MutateRate      = 0.72;
 /* Things to look up in the earthworm.h tables with getutil.c functions */
 static long          RingKey;       /* key of transport ring for i/o     */
 static unsigned char InstId;        /* local installation id             */
@@ -104,7 +102,7 @@ int main( int argc, char **argv )
 	MSG_LOGO reclogo;      /* logo of retrieved message     */
 
 	uint8_t  buffer[FULL_EVENT_SIZE];
-	FULL_EVENT_MSG_HEADER *fev_header = (FULL_EVENT_MSG_HEADER *)buffer;
+	FULL_EVENT_MSG_HEADER *header = (FULL_EVENT_MSG_HEADER *)buffer;
 #if defined( _V710 )
 	ew_thread_t tid;            /* Thread ID */
 #else
@@ -279,16 +277,12 @@ static void focalmech_ga_config( char *configfile )
 	int   nfiles;
 	int   success;
 	int   i;
-	char  plfilename[MAX_PATH_STR];
+	char  filepath[MAX_PATH_STR];
 
 /* Set to zero one init flag for each required command */
 	ncommand = 9;
 	for ( i = 0; i < ncommand; i++ )
 		init[i] = 0;
-
-	strcpy(EmailProgram, "\0");
-	strcpy(SubjectPrefix, DEFAULT_SUBJECT_PREFIX);
-	strcpy(LinkURLPrefix, "/");
 
 /* Open the main configuration file */
 	nfiles = k_open( configfile );
@@ -350,11 +344,46 @@ static void focalmech_ga_config( char *configfile )
 				QueueSize = k_long();
 				init[4] = 1;
 			}
-			else if ( k_its("RemoveShakeMap") ) {
+			else if ( k_its("RemoveFocalPlot") ) {
 				RemoveSwitch = k_int();
 				logit(
 					"o", "focalmech_ga: This process will %s the files after posted.\n",
 					RemoveSwitch ? "remove" : "keep"
+				);
+			}
+			else if ( k_its("IterationNum") ) {
+				IterationNum = k_int();
+				logit(
+					"o", "focalmech_ga: The iteration times of GA has been setted to %d.\n",
+					IterationNum
+				);
+			}
+			else if ( k_its("Population") ) {
+				Population = k_int();
+				logit(
+					"o", "focalmech_ga: The population size of GA has been setted to %d.\n",
+					Population
+				);
+			}
+			else if ( k_its("MutateBits") ) {
+				MutateBits = k_int();
+				logit(
+					"o", "focalmech_ga: The mutate bits of GA has been setted to %d\n",
+					MutateBits
+				);
+			}
+			else if ( k_its("ReprodutionRate") ) {
+				ReprodutionRate = k_val();
+				logit(
+					"o", "focalmech_ga: The reproduction rate of GA has been setted to %5.2lf%%\n",
+					ReprodutionRate * 100.0
+				);
+			}
+			else if ( k_its("MutateRate") ) {
+				MutateRate = k_val();
+				logit(
+					"o", "focalmech_ga: The mutation rate of GA has been setted to %5.2lf%%\n",
+					MutateRate * 100.0
 				);
 			}
 		/* 5 */
@@ -368,22 +397,18 @@ static void focalmech_ga_config( char *configfile )
 				logit("o", "focalmech_ga: Report path %s\n", ReportPath);
 				init[5] = 1;
 			}
-			else if ( k_its("IssueInterval") ) {
-				IssueInterval = k_long();
-				logit("o", "focalmech_ga: Real shakemap alarm interval change to %ld\n", IssueInterval);
-			}
-			else if ( k_its("NormalPolyLineFile") ) {
+			else if ( k_its("VelocityModelFile") ) {
 				str = k_str();
 				if ( str )
-					strcpy(plfilename, str);
-				logit("o", "focalmech_ga: Normal polygon line file: %s\n", plfilename);
+					strcpy(filepath, str);
+				logit("o", "focalmech_ga: 3D velocity model file: %s\n", filepath);
 
-				if ( psk_plot_polyline_read( plfilename, PLOT_NORMAL_POLY ) ) {
-					logit("e", "focalmech_ga: Error reading normal polygon line file; exiting!\n");
+				if ( tac_velmod_load( filepath ) ) {
+					logit("e", "focalmech_ga: Error reading 3D velocity model file; exiting!\n");
 					exit(-1);
 				}
 				else {
-					logit("o", "focalmech_ga: Reading normal polygon line file finish!\n");
+					logit("o", "focalmech_ga: Reading 3D velocity model file finish!\n");
 				}
 			}
 			else if ( k_its("PostScriptWithMinMag") ) {
@@ -594,13 +619,7 @@ static thr_ret thread_proc_event( void *dummy )
 	char     command[MAX_PATH_STR * 4];
 	char     script_args[MAX_PATH_STR * 2];
 	uint8_t  buffer[FULL_EVENT_SIZE];
-	FULL_EVENT_MSG_HEADER *fev_header = (FULL_EVENT_MSG_HEADER *)buffer;
-	FPL_OBSERVE *obs    = NULL;
-	int          nobs   = 0;
-	double       f_score;
-	double       quality;
-	FPL_RESULT  best_solution;
-	FPL_RESULT  best_sdv;
+
 /* Tell the main thread we're ok */
 	ProcessEventStatus = THREAD_ALIVE;
 /* Initialization */
@@ -611,29 +630,32 @@ static thr_ret thread_proc_event( void *dummy )
 		//res = psk_msgqueue_dequeue( gmtmp, &recsize, &reclogo );
 
 		if ( res == 0 ) {
+		/* */
+			FULL_EVENT_MSG_HEADER *header = (FULL_EVENT_MSG_HEADER *)buffer;
+			FULL_EVENT_PICK_MSG   *pick = (FULL_EVENT_PICK_MSG *)(header + 1);
+			FPL_OBSERVE *obs = NULL;
+			FPL_RESULT   best_solution;
+			FPL_RESULT   best_sdv;
+			FPL_RESULT   dbresult[2];
+			FPL_RESULT   ptaxis[2];
+			int          nobs = 0;
+			double       f_score;
+			double       quality;
 		/* Get the take-off angle & azimuth of all the picks */
-			FULL_EVENT_PICK_MSG *pick = (FULL_EVENT_PICK_MSG *)(fev_header + 1);
-			for ( int i = 0; i < fev_header->npicks; i++, pick++ )
-				cal_pick_tko_azi( pick, fev_header->evlat, fev_header->evlon, fev_header->evdepth );
-		/* Generate the calculating function's threads */
-			//if ( StartThread( thread_plot_shakemap, (unsigned)THREAD_STACK, &tid[0] ) == -1 ) {
-			//	logit("e", "focalmech_ga: Error starting PlotShakemap_thr thread!\n");
-			//}
-			//PlotMapStatus = THREAD_ALIVE;
-			//while ( PlotMapStatus != THREAD_OFF ) {
-			//	printf("focalmech_ga: Waiting for the shakemap plotting...\n");
-			//	sleep_ew(200);
-			//}
+		/* Maybe need to generate the calculating function's threads */
+			for ( int i = 0; i < header->npicks; i++, pick++ )
+				cal_pick_tko_azi( pick, header->evlat, header->evlon, header->evdepth );
 		/* */
 			if ( (nobs = pack_picks_to_observes( &obs, buffer )) < 10 )
 				goto end_event;
 		/* */
-			cal_focal_ga( &best_solution, &best_sdv, &f_score, &quality, obs, nobs, 20, 800, 3, 0.032, 0.72 );
-			plot_focal_result( &best_solution, &best_sdv, obs, nobs, f_score, quality, buffer, ReportPath );
+			cal_focal_ga( &best_solution, &best_sdv, &f_score, &quality, obs, nobs );
+			fpl_dbcouple( &best_solution, dbresult, &ptaxis[FPLF_T_AXIS], &ptaxis[FPLF_P_AXIS] );
+			plot_focal_result( dbresult, ptaxis, &best_sdv, obs, nobs, f_score, quality, buffer, ReportPath );
 		/* Post to the Facebook or other place by external script */
-		 	gen_script_command_args( script_args, PlotShakeMaps );
+		 	gen_script_command_args( script_args, buffer, dbresult, ptaxis, f_score, quality, nobs );
 			for ( int i = 0; i < NumPostScripts; i++ ) {
-				if ( PostScripts[i].min_magnitude <= fev_header->magnitude ) {
+				if ( PostScripts[i].min_magnitude <= header->magnitude ) {
 					logit("o", "focalmech_ga: Executing the script: '%s'\n", PostScripts[i].script);
 					sprintf(command, "%s %s", PostScripts[i].script, script_args);
 				/* Execute system command to post focal */
@@ -645,12 +667,12 @@ static thr_ret thread_proc_event( void *dummy )
 			}
 		/* Remove the plotted shakemaps */
 			if ( RemoveSwitch ) {
-				psk_misc_smfilename_gen( PlotShakeMaps, script_args, MAX_STR_SIZE );
-				remove_shakemap( ReportPath, script_args );
+
 			}
-		}
 end_event:
-		free(obs);
+			free(obs);
+		}
+
 	} while ( Finish );
 
 /* we're quitting */
@@ -746,21 +768,16 @@ static int pack_picks_to_observes( FPL_OBSERVE **result, void *ev_msg )
  * @param quality
  * @param obs
  * @param nobs
- * @param nitr
- * @param npop
- * @param mutate_bits
- * @param repro_rate
- * @param mutate_rate
  * @return int
  */
-static int cal_focal_ga( FPL_RESULT *fpl, FPL_RESULT *sdv, double *f_score, double *quality, FPL_OBSERVE *obs, const int nobs, int nitr, int npop, int mutate_bits, double repro_rate, double mutate_rate )
+static int cal_focal_ga( FPL_RESULT *fpl, FPL_RESULT *sdv, double *f_score, double *quality, FPL_OBSERVE *obs, const int nobs )
 {
-	FPL_RESULT _result[npop];
-	FPL_RESULT _sdv[npop];
+	FPL_RESULT _result[Population];
+	FPL_RESULT _sdv[Population];
 	int        nres;
 
 /* */
-	*f_score = fpl_find_ga( obs, nobs, nitr, npop, mutate_bits, repro_rate, mutate_rate, _result, &nres );
+	*f_score = fpl_find_ga( obs, nobs, IterationNum, Population, MutateBits, ReprodutionRate, MutateRate, _result, &nres );
 	*quality = fpl_quality_cal( obs, nobs, *f_score );
 	nres     = fpl_result_refine( _result, _sdv, nres );
 /* */
@@ -774,7 +791,8 @@ static int cal_focal_ga( FPL_RESULT *fpl, FPL_RESULT *sdv, double *f_score, doub
 /**
  * @brief
  *
- * @param fpl
+ * @param dbresult
+ * @param ptaxis
  * @param sdv
  * @param obs
  * @param nobs
@@ -783,22 +801,18 @@ static int cal_focal_ga( FPL_RESULT *fpl, FPL_RESULT *sdv, double *f_score, doub
  * @param ev_msg
  * @param output_path
  */
-static void plot_focal_result( FPL_RESULT *fpl, FPL_RESULT *sdv, FPL_OBSERVE *obs, const int nobs, const double f_score,  const double quality, void *ev_msg, const char *output_path )
+static void plot_focal_result( FPL_RESULT *dbresult, FPL_RESULT *ptaxis, FPL_RESULT *sdv, FPL_OBSERVE *obs, const int nobs, const double f_score, const double quality, void *ev_msg, const char *output_path )
 {
 	FULL_EVENT_MSG_HEADER *header = (FULL_EVENT_MSG_HEADER *)ev_msg;
-	FPL_RESULT dbresult[2];
-	FPL_RESULT ptaxis[2];
 /* */
 	int    year, mon, day, hour, min;
 	double sec;
 	char   path[MAX_PATH_STR];
 
 /* */
-	fpl_dbcouple( fpl, dbresult, &ptaxis[FPLF_T_AXIS], &ptaxis[FPLF_P_AXIS] );
 	split_time( &year, &mon, &day, &hour, &min, &sec, header->origin_time );
-/* Generate the output figure name */
-	sprintf(path, "%s%s_focal.png", output_path, header->event_id);
-	pfocal_canva_open( path );
+/* */
+	pfocal_canva_open( output_path );
 /* */
 	pfocal_dbplane_plot( dbresult, PLOT_BEACHBALL_RADIUS );
 	pfocal_pt_axis_plot( ptaxis, PLOT_BEACHBALL_RADIUS );
@@ -823,44 +837,49 @@ static void remove_shakemap( const char *reportpath, const char *resfilename )
 	return;
 }
 
-/*
+/**
+ * @brief
  *
+ * @param buffer
+ * @param ev_msg
+ * @param dbresult
+ * @param ptaxis
+ * @param f_score
+ * @param quality
+ * @param nobs
+ * @return char*
  */
-static char *gen_script_command_args( char *buffer, const PLOTSMAP *psm )
+static char *gen_script_command_args( char *buffer, void *ev_msg, FPL_RESULT dbresult[2], FPL_RESULT ptaxis[2], double f_score, double quality, int nobs )
 {
-	int             i;
-	GRIDMAP_HEADER *gmref   = psk_misc_refmap_get( psm );
-	double          max_mag = DUMMY_MAG;
-	struct tm      *tp      = NULL;
-	char            filename[MAX_PATH_STR];
-	char            starttime[MAX_DSTR_LENGTH];
-	char            endtime[MAX_DSTR_LENGTH];
-	time_t          reptime;
-
-/* Generate the timestamp */
-	tp = localtime(&gmref->starttime);
-	date2spstring( tp, starttime, MAX_DSTR_LENGTH );
-	tp = localtime(&gmref->endtime);
-	date2spstring( tp, endtime, MAX_DSTR_LENGTH );
-	reptime = gmref->codaflag ? -1 : gmref->endtime - gmref->starttime;
-/* And get the maximum magnitude */
-	for ( i = 0; i < 4; i++ )
-		if ( gmref->magnitude[i] > max_mag )
-			max_mag = gmref->magnitude[i];
+	FULL_EVENT_MSG_HEADER *evheader = (FULL_EVENT_MSG_HEADER *)ev_msg;
 
 /* Command arguments for executing script */
 	sprintf(
-		buffer, "%s %s %ld %f %d ", starttime, endtime, reptime, max_mag, psk_misc_trigstations_get( psm )
+		buffer, "%s %.2lf %.6lf %.6lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %d",
+		evheader->event_id, evheader->origin_time, evheader->evlat, evheader->evlon, evheader->evdepth, evheader->magnitude,
+		dbresult[0].strike, dbresult[0].dip, dbresult[0].rake, dbresult[1].strike, dbresult[1].dip, dbresult[1].rake,
+		ptaxis[FPLF_T_AXIS].strike, ptaxis[FPLF_T_AXIS].dip, ptaxis[FPLF_P_AXIS].strike, ptaxis[FPLF_P_AXIS].dip,
+		(1.0 - f_score) * 0.5, quality, nobs
 	);
-/* Generate the result file names */
-	for ( i = 0; i < NumPlotShakeMaps; i++ ) {
-		psk_misc_smfilename_gen( psm + i, filename, MAX_STR_SIZE );
-		strcat(buffer, ReportPath);
-		strcat(buffer, filename);
-		strcat(buffer, " ");
-	}
 
 	return buffer;
+}
+
+/**
+ * @brief
+ *
+ * @param output
+ * @param ev_msg
+ * @return char*
+ */
+static char *gen_focalplot_fullpath( char *output, void *ev_msg )
+{
+	FULL_EVENT_MSG_HEADER *evheader = (FULL_EVENT_MSG_HEADER *)ev_msg;
+
+/* Generate the output figure name */
+	sprintf(output, "%s%s_focal.png", ReportPath, evheader->event_id);
+
+	return output;
 }
 
 /**

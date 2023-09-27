@@ -798,9 +798,10 @@ static double get_vel_geog( const double lon, const double lat, const double dep
 	jp = (int)(lat * Ibld3);
 	kp = (int)(dep * Ibld4);
 
+/* If the ray point out of range, give it the center velocity */
 	if ( intmap_3d(&ip, &jp, &kp) )
-		return 0.0;
-
+		return (Vel_grid + Nxyz_c / 2)->vel[0];
+/* */
 	lonf = Lon_c[ip];
 	lonf = (lon - lonf) / (Lon_c[ip + 1] - lonf);
 	latf = Lat_c[jp];
