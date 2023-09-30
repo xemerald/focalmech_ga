@@ -37,6 +37,7 @@ double fpl_find_ga( void *observes, int nobs, int nitr, int npop, int mutate_bit
 	GA_POPULATION ppop[npop];
 	const int     quarter_pop = (int)(npop * 0.25);
 	double        score_sum;
+	int           _nout;
 
 /* */
 	ga_present_gen_fast( ppop, npop, cal_gene_score_ga, observes, nobs );
@@ -52,15 +53,16 @@ double fpl_find_ga( void *observes, int nobs, int nitr, int npop, int mutate_bit
 			break;
 	}
 /* */
-	int _nout = 0;
+	_nout = 0;
 	for ( int i = 0; i < npop; i++ ) {
 		if ( fabs(ppop[i].score - ppop[0].score) < DBL_EPSILON ) {
 			decode_gene_ga( &output[_nout].strike, &output[_nout].dip, &output[_nout].rake, ppop[i].gene );
 			_nout++;
 		}
 	}
-
+/* */
 	*nout = _nout;
+
 	return ppop[0].score;
 }
 
@@ -318,15 +320,15 @@ double fpl_quality_cal( FPL_OBSERVE *observes, const int nobs, const double f_sc
 
 /* Find Gap Quality */
 	qsort(observes, nobs, sizeof(FPL_OBSERVE), compare_azimuth);
-	double gap = observes[0].azimuth + FOCAL_GA_PI2 - observes[nobs - 1].azimuth;
+	quality_gap = observes[0].azimuth + FOCAL_GA_PI2 - observes[nobs - 1].azimuth;
 	for ( int i = 1; i < nobs; i++ ) {
-		if( (observes[i].azimuth - observes[i - 1].azimuth) > gap )
-			gap = observes[i].azimuth - observes[i - 1].azimuth;
+		if( (observes[i].azimuth - observes[i - 1].azimuth) > quality_gap )
+			quality_gap = observes[i].azimuth - observes[i - 1].azimuth;
 	}
-	if ( gap >= FOCAL_GA_PI )
+	if ( quality_gap >= FOCAL_GA_PI )
 		quality_gap = 0.0;
 	else
-		quality_gap = (FOCAL_GA_PI - gap) / FOCAL_GA_HALF_PI;
+		quality_gap = (FOCAL_GA_PI - quality_gap) / FOCAL_GA_HALF_PI;
 
 /* Find # Quality */
 	if ( nobs < 10 )
@@ -648,7 +650,7 @@ static double cal_gene_score_ga( const uint32_t gene, void *observes, const int 
 			n--;
 	}
 
-	return 1.0 * n / nobs;
+	return (double)n / nobs;
 }
 
 /**
@@ -671,9 +673,7 @@ static double cal_amp( double strike, double dip, double slip, double azimuth, d
 	double CSEM = cos(takeoff);
 	double SNEM2 = SNEM * SNEM;
 	double SN2EM = 2.0 * SNEM * CSEM;
-
-	azimuth -= strike;
-	double SNAZ = sin(azimuth);
+	double SNAZ = sin(azimuth -= strike);
 
 	temp  = cos(slip) * cos(azimuth) * (SNDIP * SNEM2 * 2.0 * SNAZ - CSDIP * SN2EM);
 	temp += sin(slip) * (2.0 * SNDIP * CSDIP * ((CSEM * CSEM) - SNEM2 * (SNAZ * SNAZ)) + (CSDIP * CSDIP - SNDIP * SNDIP) * SN2EM * SNAZ);

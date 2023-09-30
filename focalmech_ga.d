@@ -13,6 +13,7 @@ ThreadsNum          4               # number of parallel processing threads, max
 
 RemoveFocalPlot     0               # 0 to keep those plot files; 1 to remove those
                                     # files after posted. Defaults to 0 if this is not setted
+MinPickPolarity     3               # min number of pick polarity
 
 # Parameters for main Genetic Algorithm:
 #
@@ -42,4 +43,4 @@ VelocityModelFile     /home/.../ew/run/params/VPVSMOD.txt
 # List the message logos to grab from transport ring:
 #
 #              Installation       Module          Message Types
-GetEventsFrom  INST_WILDCARD    MOD_SHAKEMAP     TYPE_FULL_EVENT
+GetEventsFrom  INST_WILDCARD    MOD_WILDCARD     TYPE_FULL_EVENT

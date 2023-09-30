@@ -135,8 +135,10 @@ int tac_main( double *tko, double *azi, double evla, double evlo, double evdp, d
 	raytracing_pb( evla, evlo, evdp, stla, stlo, stdp, ray, &np, &tt );
 	cal_tko_azi( ray, np, tko, azi );
 /* Show full information */
+#ifdef _DEBUG
 	printf("# nodes = %d, travel time = %lf\n", np, tt);
-	printf("takeoff = %lf, azimuth = %lf\n", *tko * FOCAL_GA_RAD2DEG, *azi * FOCAL_GA_RAD2DEG);
+	printf("takeoff = %lf, azimuth = %lf\n", *tko, *azi);
+#endif
 
 	return 0;
 }
@@ -217,8 +219,8 @@ static void cal_tko_azi( const RAY_INFO *ray, const int np, double *tko, double 
 	if ( _azi < 0.0 )
 		_azi += FOCAL_GA_PI2;
 /* */
-	*tko = _tko;
-	*azi = _azi;
+	*tko = _tko * FOCAL_GA_RAD2DEG;
+	*azi = _azi * FOCAL_GA_RAD2DEG;
 
 	return;
 }
@@ -255,7 +257,6 @@ static void raytracing_pb( double evla, double evlo, double evdp, double stla, d
 	double to, tn;
 
 	double acosa, sina, rsina;
-	//double cosa;
 
 	double x1, y1, z1;
 	double x2, y2, z2;
@@ -800,7 +801,7 @@ static double get_vel_geog( const double lon, const double lat, const double dep
 
 /* If the ray point out of range, give it the center velocity */
 	if ( intmap_3d(&ip, &jp, &kp) )
-		return (Vel_grid + Nxyz_c / 2)->vel[0];
+		return EPS;
 /* */
 	lonf = Lon_c[ip];
 	lonf = (lon - lonf) / (Lon_c[ip + 1] - lonf);
@@ -872,9 +873,9 @@ static int intmap_3d( int *ip, int *jp, int *kp )
 	if ( *ip < 0 || *jp < 0 || *kp < 0 ||
 		*ip >= (Ilonmax - 2) || *jp >= (Ilatmax - 2) || *kp >= (Idepmax - 2)
 	) {
-		fprintf(stderr, "intmap_3d: ERROR!!! lon, lat and dep out of range: exiting!\n" );
-		fprintf(stderr, "lon=%lf, lat=%lf, dep=%lf\n", (double)lon / Ibld3, (double)lat / Ibld3, (double)dep / Ibld4);
-		fprintf(stderr, "ip=%d, jp=%d, kp=%d\n", *ip, *jp, *kp);
+		fprintf(stderr, "intmap_3d: NOTICE!!! lon, lat or dep out of range! Force back to the nearest bolder.\n" );
+		fprintf(stderr, "lon = %lf, lat = %lf, dep = %lf\n", (double)lon / Ibld3, (double)lat / Ibld3, (double)dep / Ibld4);
+		fprintf(stderr, "ip = %d, jp = %d, kp = %d\n", *ip, *jp, *kp);
 		return -1;
 	}
 /* */

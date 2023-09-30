@@ -63,17 +63,22 @@ void pfocal_canva_close( void )
 void pfocal_dbplane_plot( FPL_RESULT dbplane[2], const double radius )
 {
 	const double r_sqrt_two = radius * sqrt(2.0);
+	double sin_str;
+	double cos_str;
+	float _x;
+	float _y;
 
+/* */
 	for ( int i = 0; i < 2; i++ ) {
 		if ( dbplane[i].dip >= FOCAL_GA_HALF_PI )
 			dbplane[i].dip -= 0.0001;
 		else if ( dbplane[i].dip < 0.0001 )
 			dbplane[i].dip += 0.0001;
 	/* */
-		double sin_str = sin(dbplane[i].strike);
-		double cos_str = cos(dbplane[i].strike);
-		float _x = radius * sin_str;
-		float _y = radius * cos_str;
+		sin_str = sin(dbplane[i].strike);
+		cos_str = cos(dbplane[i].strike);
+		_x = radius * sin_str;
+		_y = radius * cos_str;
 		cpgmove(_x, _y);
 		for ( double theta = FOCAL_GA_HALF_PI; theta >= -FOCAL_GA_HALF_PI; theta -= FOCAL_GA_DEG2RAD ) {
 			double cos_theta = cos(theta);
@@ -124,7 +129,11 @@ void pfocal_observe_plot( FPL_OBSERVE *observes, const int nobserve, const doubl
 {
 	const double r_sqrt_two = radius * sqrt(2.0);
 	float tmp = radius / 50.0;
+	double rx;
+	float _x;
+	float _y;
 
+/* */
 	cpgsch(1.0);
 	cpgslw(16);
 	for ( int i = 0; i < nobserve; i++ ) {
@@ -137,9 +146,9 @@ void pfocal_observe_plot( FPL_OBSERVE *observes, const int nobserve, const doubl
 				observes[i].azimuth -= FOCAL_GA_PI2;
 		}
 
-		double rx = r_sqrt_two * sin(observes[i].takeoff * 0.5);
-		float _x = rx * sin(observes[i].azimuth);
-		float _y = rx * cos(observes[i].azimuth);
+		rx = r_sqrt_two * sin(observes[i].takeoff * 0.5);
+		_x = rx * sin(observes[i].azimuth);
+		_y = rx * cos(observes[i].azimuth);
 
 		cpgsfs(observes[i].polarity < 0.0 ? 2 : 1);
 		cpgcirc(_x, _y, tmp);

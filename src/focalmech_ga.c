@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdatomic.h>
 #include <time.h>
 #include <math.h>
 /* Earthworm environment header include */
@@ -31,12 +32,15 @@ static void focalmech_ga_lookup( void );
 static void focalmech_ga_status( unsigned char, short, char * );
 static void focalmech_ga_end( void );  /* Free all the local memory & close socket */
 
-static int cal_focal_ga( FPL_RESULT *, FPL_RESULT *, double *, double *, FPL_OBSERVE *, const int );
-static void plot_focal_result( FPL_RESULT *, FPL_RESULT *, FPL_RESULT *, FPL_OBSERVE *, const int, const double, const double, void *, const char * );
-
+static void  proc_event( void * );
+static void  proc_picks_tac( void * );
+static void  cal_pick_tko_azi( FULL_EVENT_PICK_MSG *, const double, const double, const double );
+static int   pack_picks_to_observes( FPL_OBSERVE **, void * );
+static int   cal_focal_ga( FPL_RESULT *, FPL_RESULT *, double *, double *, FPL_OBSERVE *, const int );
+static void  plot_focal_result( FPL_RESULT *, FPL_RESULT *, FPL_RESULT *, FPL_OBSERVE *, const int, const double, const double, void *, const char * );
 static char *gen_script_command_args( char *, void *, FPL_RESULT [2], FPL_RESULT [2], double, double, int );
 static char *gen_focalplot_fullpath( char *, void * );
-static void split_time( int *, int *, int *, int *, int *, double *, const double );
+static void  split_time( int *, int *, int *, int *, int *, double *, const double );
 
 static SHM_INFO Region;      /* shared memory region to use for i/o    */
 
@@ -92,9 +96,9 @@ static char  Text[150];       /* string for log/error messages          */
  *
  */
 typedef struct {
-	void  *buffer;
-	size_t size;
-	int    is_copied;
+	void      *buffer;
+	size_t     size;
+	atomic_int is_copied;
 } _BUFFER_DELIVER_ARG;
 
 /**
@@ -102,10 +106,10 @@ typedef struct {
  *
  */
 typedef struct {
-	void *buffer;
-	int   proc_thrds;
-	int   assign_idx;
-	int   is_finish;
+	void      *buffer;
+	int        proc_thrds;
+	int        assign_idx;
+	atomic_int is_finish;
 } _PICKS_TAC_ARG;
 
 /**
@@ -220,21 +224,21 @@ int main( int argc, char **argv )
 
 		/* Process the message */
 			if ( reclogo.type == TypeFullEvent ) {
-				_BUFFER_DELIVER_ARG arg = {
+				volatile _BUFFER_DELIVER_ARG arg = {
 					.buffer = buffer,
 					.size = recsize,
-					.is_copied = 0
+					.is_copied = ATOMIC_VAR_INIT(0)
 				};
 			/* Debug */
 				/* logit( "", "%s", rec ); */
 			/* Generate every given seconds or at the coda of event */
-				if ( tpool_add_work( ThrdPool, proc_event, &arg ) ) {
+				if ( tpool_add_work( ThrdPool, proc_event, (void *)&arg ) ) {
 					logit("et", "focalmech_ga: Add the event messages to thread pool ERROR, lost message!\n");
 				}
 				else {
 					while ( !arg.is_copied ) {
-						sleep_ew(50);
 						printf("focalmech_ga: Waiting for the transfering of the event messages...\n");
+						sleep_ew(50);
 					}
 				}
 			}
@@ -271,7 +275,7 @@ static void focalmech_ga_config( char *configfile )
 	char  filepath[MAX_PATH_STR];
 
 /* Set to zero one init flag for each required command */
-	ncommand = 9;
+	ncommand = 7;
 	for ( i = 0; i < ncommand; i++ )
 		init[i] = 0;
 
@@ -331,7 +335,7 @@ static void focalmech_ga_config( char *configfile )
 				init[3] = 1;
 			}
 			else if ( k_its("ThreadsNum") ) {
-				if ( ThreadsNum = k_int() > MAX_THREADS_NUM )
+				if ( (ThreadsNum = k_int()) > MAX_THREADS_NUM )
 					ThreadsNum = MAX_THREADS_NUM;
 				else if ( ThreadsNum < 1 )
 					ThreadsNum = 1;
@@ -398,7 +402,7 @@ static void focalmech_ga_config( char *configfile )
 					strncat(ReportPath, "/", 1);
 
 				logit("o", "focalmech_ga: Report path %s\n", ReportPath);
-				init[5] = 1;
+				init[4] = 1;
 			}
 			else if ( k_its("VelocityModelFile") ) {
 				str = k_str();
@@ -413,6 +417,7 @@ static void focalmech_ga_config( char *configfile )
 				else {
 					logit("o", "focalmech_ga: Reading 3D velocity model file finish!\n");
 				}
+				init[5] = 1;
 			}
 			else if ( k_its("PostScriptWithMinMag") ) {
 				if ( NumPostScripts < MAX_POST_SCRIPTS ) {
@@ -463,10 +468,6 @@ static void focalmech_ga_config( char *configfile )
 					}
 				}
 				if ( (str = k_str()) ) {
-					if ( strcmp(str, "MOD_WILDCARD") == 0 ) {
-						logit("e", "focalmech_ga: This module do not accept MOD_WILDCARD; exiting!\n");
-						exit(-1);
-					}
 					if ( GetModId(str, &Getlogo[nLogo].mod) != 0 ) {
 						logit("e", "trace2peak: Invalid module name <%s>", str);
 						logit("e", " in <GetEventsFrom> cmd; exiting!\n");
@@ -481,7 +482,7 @@ static void focalmech_ga_config( char *configfile )
 					}
 				}
 				nLogo++;
-				init[8] = 1;
+				init[6] = 1;
 			}
 		/* Unknown command */
 			else {
@@ -510,9 +511,9 @@ static void focalmech_ga_config( char *configfile )
 		if ( !init[1] ) logit("e", "<MyModuleId> "        );
 		if ( !init[2] ) logit("e", "<RingName> "          );
 		if ( !init[3] ) logit("e", "<HeartBeatInterval> " );
-		if ( !init[4] ) logit("e", "<QueueSize> "         );
-		if ( !init[5] ) logit("e", "<ReportPath> "        );
-		if ( !init[8] ) logit("e", "any <GetEventsFrom> " );
+		if ( !init[4] ) logit("e", "<ReportPath> "        );
+		if ( !init[5] ) logit("e", "<VelocityModelFile> " );
+		if ( !init[6] ) logit("e", "any <GetEventsFrom> " );
 		logit("e", "command(s) in <%s>; exiting!\n", configfile);
 		exit(-1);
 	}
@@ -617,44 +618,42 @@ static void focalmech_ga_end( void )
  */
 static void proc_event( void *arg )
 {
-	uint8_t buffer[FULL_EVENT_SIZE] = { 0 };
-	_BUFFER_DELIVER_ARG *in_buffer = arg;
-
-/* Tell the main thread we're ok */
-	memcpy(buffer, in_buffer->buffer, in_buffer->size);
-	in_buffer->is_copied = 1;
-
+	_BUFFER_DELIVER_ARG    *in_buffer = arg;
+	uint8_t                 buffer[FULL_EVENT_SIZE];
+	FULL_EVENT_MSG_HEADER  *header;
+	volatile _PICKS_TAC_ARG tac_arg[ThreadsNum];
 /* */
-	FULL_EVENT_MSG_HEADER *header = (FULL_EVENT_MSG_HEADER *)buffer;
-	_PICKS_TAC_ARG         tac_arg[ThreadsNum];
-/* */
-	FPL_OBSERVE *obs = NULL;
+	FPL_OBSERVE *obs;
 	FPL_RESULT   best_solution;
 	FPL_RESULT   best_sdv;
 	FPL_RESULT   dbresult[2];
 	FPL_RESULT   ptaxis[2];
-	int          nobs = 0;
+	int          nobs;
 	double       f_score;
 	double       quality;
 	char         fullpath[MAX_PATH_STR];
 	char         command[MAX_PATH_STR * 4];
 	char         script_args[MAX_PATH_STR * 2];
 
+/* Tell the main thread we're ok */
+	memcpy(buffer, in_buffer->buffer, in_buffer->size);
+	in_buffer->is_copied += 1;
+/* */
+	header = (FULL_EVENT_MSG_HEADER *)buffer;
+	logit("ot", "focalmech_ga: Receive a new event message (%s), start to process it!\n", header->event_id);
 /* Get the take-off angle & azimuth of all the picks */
 /* Maybe need to generate the calculating function's threads */
 	for ( int i = 0; i < ThreadsNum; i++ ) {
 		tac_arg[i].buffer = buffer;
 		tac_arg[i].proc_thrds = ThreadsNum;
 		tac_arg[i].assign_idx = i;
-		tac_arg[i].is_finish = 0;
-		tpool_add_work( ThrdPool, proc_picks_tac, &tac_arg );
+		tac_arg[i].is_finish = ATOMIC_VAR_INIT(0);
+		tpool_add_work( ThrdPool, proc_picks_tac, (void *)&tac_arg[i] );
 	}
 /* */
-	for ( int i = 0; i < ThreadsNum; i++ ) {
-		while ( !tac_arg[i].is_finish ) {
+	for ( int i = 0; i < ThreadsNum; i++ )
+		while ( !tac_arg[i].is_finish )
 			sleep_ew(10);
-		}
-	}
 /* */
 	if ( (nobs = pack_picks_to_observes( &obs, buffer )) >= MinPickPolarity ) {
 	/* */
@@ -665,7 +664,7 @@ static void proc_event( void *arg )
 	/* Post to the Facebook or other place by external script */
 		gen_script_command_args( script_args, buffer, dbresult, ptaxis, f_score, quality, nobs );
 		for ( int i = 0; i < NumPostScripts; i++ ) {
-			if ( PostScripts[i].min_magnitude <= header->magnitude ) {
+			if ( PostScripts[i].min_magnitude <= header->mag ) {
 				logit("o", "focalmech_ga: Executing the script: '%s'\n", PostScripts[i].script);
 				sprintf(command, "%s %s", PostScripts[i].script, script_args);
 			/* Execute system command to post focal */
@@ -696,11 +695,11 @@ static void proc_picks_tac( void *arg )
 	FULL_EVENT_MSG_HEADER *header = (FULL_EVENT_MSG_HEADER *)tac_arg->buffer;
 	FULL_EVENT_PICK_MSG   *pick = (FULL_EVENT_PICK_MSG *)(header + 1);
 
-	tac_arg->is_finish = 0;
+/* */
 	for ( int i = tac_arg->assign_idx; i < header->npicks; i += tac_arg->proc_thrds )
 		cal_pick_tko_azi( &pick[i], header->evlat, header->evlon, header->evdepth );
-
-	tac_arg->is_finish = 1;
+/* */
+	tac_arg->is_finish += 1;
 
 	return;
 }
@@ -805,7 +804,6 @@ static void plot_focal_result( FPL_RESULT *dbresult, FPL_RESULT *ptaxis, FPL_RES
 /* */
 	int    year, mon, day, hour, min;
 	double sec;
-	char   path[MAX_PATH_STR];
 
 /* */
 	split_time( &year, &mon, &day, &hour, &min, &sec, header->origin_time );
@@ -815,7 +813,7 @@ static void plot_focal_result( FPL_RESULT *dbresult, FPL_RESULT *ptaxis, FPL_RES
 	pfocal_dbplane_plot( dbresult, PLOT_BEACHBALL_RADIUS );
 	pfocal_pt_axis_plot( ptaxis, PLOT_BEACHBALL_RADIUS );
 	pfocal_observe_plot( obs, nobs, PLOT_BEACHBALL_RADIUS );
-	pfocal_eq_info_plot( year, mon, day, hour, min, sec, header->magnitude, header->evlat, header->evlon, header->evdepth );
+	pfocal_eq_info_plot( year, mon, day, hour, min, sec, header->mag, header->evlat, header->evlon, header->evdepth );
 	pfocal_plane_info_plot( dbresult, ptaxis, sdv, quality, f_score, PLOT_BEACHBALL_RADIUS );
 /* */
 	pfocal_canva_close();
@@ -842,7 +840,7 @@ static char *gen_script_command_args( char *buffer, void *ev_msg, FPL_RESULT dbr
 /* Command arguments for executing script */
 	sprintf(
 		buffer, "%s %.2lf %.6lf %.6lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %.2lf %d",
-		evheader->event_id, evheader->origin_time, evheader->evlat, evheader->evlon, evheader->evdepth, evheader->magnitude,
+		evheader->event_id, evheader->origin_time, evheader->evlat, evheader->evlon, evheader->evdepth, evheader->mag,
 		dbresult[0].strike, dbresult[0].dip, dbresult[0].rake, dbresult[1].strike, dbresult[1].dip, dbresult[1].rake,
 		ptaxis[FPLF_T_AXIS].strike, ptaxis[FPLF_T_AXIS].dip, ptaxis[FPLF_P_AXIS].strike, ptaxis[FPLF_P_AXIS].dip,
 		(1.0 - f_score) * 0.5, quality, nobs

@@ -25,6 +25,9 @@
  * phase_name  Phase code (e.g., 'P', 'S', or 'PKP')
  * polarity    First-motion descriptor (U,D,' ','?')
  * weight      Pick weight or quality (0-4)
+ * latitude    Geographical station latitude in signed decimal degrees (WGS84)
+ * longitude   Geographical station longitude in signed decimal degrees (WGS84)
+ * elevation   Station elevation in meters (WGS84)
  * picktime    Time of pick in seconds since 1970
  * residual    Travel-time residual in seconds
  * pamp        P amplitudes in three different types
@@ -93,7 +96,7 @@ typedef struct {
    double  evlat;
    double  evlon;
    double  evdepth;
-   double  magnitude;
+   double  mag;
    double  gap;
    int     nsta;
    int     npha;
