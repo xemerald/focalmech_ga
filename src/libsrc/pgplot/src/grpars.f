@@ -27,7 +27,7 @@ C  6-Jun-1995 - correct a zero-length string problem [TJP].
 C-----------------------------------------------------------------------
       CHARACTER*32  CTYPE, UPPER
       CHARACTER*6   APPSTR
-      CHARACTER*256 DESCR
+      CHARACTER*512 DESCR
       INTEGER       GRDTYP, GRTRIM
       INTEGER       L, LC, LS
       DATA          APPSTR/'APPEND'/

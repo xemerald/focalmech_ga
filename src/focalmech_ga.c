@@ -860,7 +860,7 @@ static char *gen_focalplot_fullpath( char *output, const char *parent_path, void
 	EARLY_EVENT_MSG_HEADER *evheader = (EARLY_EVENT_MSG_HEADER *)ev_msg;
 
 /* Generate the output figure name */
-	sprintf(output, "%s%s_%d_focal.png", parent_path, evheader->event_id, evheader->seq);
+	sprintf(output, "%s%s_%d_fm.png", parent_path, evheader->event_id, evheader->seq);
 
 	return output;
 }

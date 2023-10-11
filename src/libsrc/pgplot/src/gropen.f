@@ -33,7 +33,7 @@ C  5-Aug-1986 - add GREXEC support [AFT].
 C 12-Oct-1986 - fix bug causing GREXEC to erase screen [AFT].
 C  3-Jun-1987 - remove declaration of exit handler [TJP].
 C 15-Dec-1988 - standardize [TJP].
-C 25-Jun-1989 - remove code that removes spaces from the device name 
+C 25-Jun-1989 - remove code that removes spaces from the device name
 C               [TJP].
 C 26-Nov-1990 - [TJP].
 C  5-Jan-1993 - [TJP].
@@ -48,7 +48,7 @@ C-----------------------------------------------------------------------
       INTEGER   GRPARS, GRTRIM
       REAL      RBUF(6)
       LOGICAL   APPEND
-      CHARACTER*128 FFILE,CHR
+      CHARACTER*512 FFILE,CHR
 C
 C Initialize GRPCKG; read font file (if necessary).
 C
@@ -166,5 +166,3 @@ C
       GROPEN = 1
 C
       END
-
-

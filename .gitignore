@@ -7,8 +7,10 @@
 # Ignore the library files.
 *.a
 *.so
-
+#
+/src/libsrc/pgplot/build
 # Ignore vscode
 /.vscode
+#
 /GaFpfit.f90
 /twfocal

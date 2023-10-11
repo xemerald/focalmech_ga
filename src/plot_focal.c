@@ -22,6 +22,7 @@ void pfocal_canva_open( const char *fullpath )
 	char _path[MAX_PATH_STR];
 /* */
 	sprintf(_path, "%s/png", fullpath);
+	printf("%s\n", _path);
 	if ( !cpgopen(_path) ) {
 		fprintf(stderr, "pfocal_canva_open: ERROR!! Can't open %s\n", fullpath);
 		return;
