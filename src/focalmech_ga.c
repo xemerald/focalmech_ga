@@ -615,7 +615,6 @@ static void proc_event( EARLY_EVENT_MSG *evt_msg )
 /* Tell the main thread we're ok */
 	logit("ot", "focalmech_ga: Receive a new event message (%s), start to process it!\n", evt_msg->header.event_id);
 /* Get the take-off angle & azimuth of all the picks */
-/* Maybe need to generate the calculating function's threads */
 	for ( int i = 0; i < ThreadsNum; i++ ) {
 		tac_arg[i].buffer = evt_msg;
 		tac_arg[i].proc_thrds = ThreadsNum;
@@ -624,16 +623,16 @@ static void proc_event( EARLY_EVENT_MSG *evt_msg )
 		tpool_add_work( ThrdPool, proc_picks_tac, (void *)&tac_arg[i] );
 	}
 /* */
+	if ( !mk_outdir_by_evt( output_dir, ReportPath, evt_msg ) )
+		return;
+	gen_focalplot_fullpath( fullpath, output_dir, evt_msg );
+/* */
 	for ( int i = 0; i < ThreadsNum; i++ )
 		while ( !tac_arg[i].is_finish )
-			sleep_ew(10);
+			sleep_ew(1);
 /* */
 	if ( (nobs = pack_picks_to_observes( &obs, evt_msg )) >= MinPickPolarity ) {
 	/* */
-		if ( !mk_outdir_by_evt( output_dir, ReportPath, evt_msg ) )
-			return;
-	/* */
-		gen_focalplot_fullpath( fullpath, output_dir, evt_msg );
 		cal_focal_ga( &best_solution, &best_sdv, &f_score, &quality, obs, nobs );
 		fpl_dbcouple( &best_solution, dbresult, &ptaxis[FPLF_T_AXIS], &ptaxis[FPLF_P_AXIS] );
 		plot_focal_result( dbresult, ptaxis, &best_sdv, obs, nobs, f_score, quality, evt_msg, fullpath );
@@ -651,11 +650,19 @@ static void proc_event( EARLY_EVENT_MSG *evt_msg )
 			}
 		}
 	/* Remove the plotted focal */
-		if ( RemoveSwitch )
+		if ( RemoveSwitch ) {
 			remove(fullpath);
+			remove(output_dir);
+		}
 	/* */
 		free(obs);
 	}
+	else {
+	/* Remove the output directory */
+		remove(output_dir);
+	}
+/* */
+	logit("ot", "focalmech_ga: Finish the processing of event message (%s).\n", evt_msg->header.event_id);
 
 	return;
 }
