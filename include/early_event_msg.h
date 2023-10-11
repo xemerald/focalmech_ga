@@ -1,7 +1,7 @@
 /**
- * @file full_event_msg.h
+ * @file early_event_msg.h
  * @author your name (you@domain.com)
- * @brief Detailed definition of TYPE_FULL_EVENT,
+ * @brief Detailed definition of TYPE_EARLY_EVENT, TYPE_EARLY_PICK
  * @version 0.1
  * @date 2023-09-26
  *
@@ -13,7 +13,7 @@
 #include <trace_buf.h>
 
 #define PICK_PHASE_NAME_LEN  9
-#define PICK_PAMP_TYPE_NUM   3
+#define PICK_PAMP_TYPE_NUM   4
 
 /*
  * pick_id     DBMS ID of pick (unsigned long)
@@ -30,7 +30,7 @@
  * elevation   Station elevation in meters (WGS84)
  * picktime    Time of pick in seconds since 1970
  * residual    Travel-time residual in seconds
- * pamp        P amplitudes in three different types
+ * pamp        P amplitudes in different types
  * dist        Source-receiver distance in decimal degrees
  * azi         Receiver azimuth in degrees (from the source)
  * tko         Receiver takeoff angle in degrees (from the source)
@@ -55,10 +55,10 @@ typedef struct {
 	double  dist;
 	double  azi;
 	double  tko;
-} FULL_EVENT_PICK_MSG;
+} EARLY_PICK_MSG;
 
 
-#define FULL_EVENT_ID_LEN  32
+#define EARLY_EVENT_ID_LEN  32
 
 /*
  * event_id    Event identifier
@@ -89,7 +89,7 @@ typedef struct {
  * npicks      Number of picks in this full message
  */
 typedef struct {
-   char    event_id[FULL_EVENT_ID_LEN];
+   char    event_id[EARLY_EVENT_ID_LEN];
    int     seq;
    long    origin_id; /* which edition of event_id contained herein */
    double  origin_time;
@@ -117,14 +117,14 @@ typedef struct {
    double  az[3];
    double  dp[3];
    int     npicks;
-} FULL_EVENT_MSG_HEADER;
+} EARLY_EVENT_MSG_HEADER;
 
 /* max pcks in the message */
-#define FULL_EVENT_MAX_PICKS   1024
+#define EARLY_EVENT_MAX_PICKS   1024
 
 typedef struct {
-	FULL_EVENT_MSG_HEADER header;
-	FULL_EVENT_PICK_MSG   picks[FULL_EVENT_MAX_PICKS];
-} FULL_EVENT_MSG;
+	EARLY_EVENT_MSG_HEADER header;
+	EARLY_PICK_MSG         picks[EARLY_EVENT_MAX_PICKS];
+} EARLY_EVENT_MSG;
 
-#define FULL_EVENT_SIZE        (sizeof(FULL_EVENT_MSG))
+#define EARLY_EVENT_SIZE        (sizeof(EARLY_EVENT_MSG))

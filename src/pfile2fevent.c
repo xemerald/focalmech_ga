@@ -14,7 +14,7 @@
 #include <transport.h>
 #include <kom.h>
 /* */
-#include <full_event_msg.h>
+#include <early_event_msg.h>
 
 /* */
 #define DEFAULT_RING_NAME  "HYPO_RING"
@@ -32,7 +32,7 @@ typedef struct {
 
 
 /* */
-static int read_pfile( const char *, FULL_EVENT_MSG * );
+static int read_pfile( const char *, EARLY_EVENT_MSG * );
 static int read_stalist_file( const char * );
 static void send_fullevent_message( void *, size_t );
 static char *_rtrim( char * );
@@ -43,7 +43,7 @@ static double get_unixtime_ot( int, int, int, int, int, double );
 static SHM_INFO      Region;      /* The shared memory region   */
 static unsigned char InstId;      /* local installation id      */
 static unsigned char MyModId;
-static unsigned char TypeFullEvent;
+static unsigned char TypeEarlyEvent;
 
 static void *Root = NULL;
 
@@ -55,7 +55,7 @@ int main( int argc, char *argv[] )
 	char ringname[MAX_RING_STR];
 	int  arg_index = 1;
 	int  ringkey;
-	FULL_EVENT_MSG fe_msg;
+	EARLY_EVENT_MSG evt_msg;
 
 /* Check the number of arguments  */
 	if ( argc < 2 ) {
@@ -76,8 +76,8 @@ int main( int argc, char *argv[] )
 		fprintf(stderr, "pfile2fevent: Error getting local installation id; exiting!\n");
 		return -1;
 	}
-	if ( GetType("TYPE_FULL_EVENT", &TypeFullEvent) != 0 ) {
-		fprintf(stderr, "pfile2fevent: Invalid message type <TYPE_FULL_EVENT> exiting!\n");
+	if ( GetType("TYPE_EARLY_EVENT", &TypeEarlyEvent) != 0 ) {
+		fprintf(stderr, "pfile2fevent: Invalid message type <TYPE_EARLY_EVENT> exiting!\n");
 		return -1;
 	}
 
@@ -92,16 +92,17 @@ int main( int argc, char *argv[] )
 /* */
 
 	read_stalist_file( argv[arg_index++] );
-	read_pfile( argv[arg_index], &fe_msg );
-	strcpy(fe_msg.header.event_id, strrchr(argv[arg_index], '/') + 1);
-	send_fullevent_message( &fe_msg, sizeof(FULL_EVENT_MSG_HEADER) + fe_msg.header.npicks * sizeof(FULL_EVENT_PICK_MSG) );
-
+	if ( !read_pfile( argv[arg_index], &evt_msg ) ) {
+		strcpy(evt_msg.header.event_id, strrchr(argv[arg_index], '/') + 1);
+		evt_msg.header.seq = getpid();
+		send_fullevent_message( &evt_msg, sizeof(EARLY_EVENT_MSG_HEADER) + evt_msg.header.npicks * sizeof(EARLY_PICK_MSG) );
+	}
 	tport_detach( &Region );
 
 	return 0;
 }
 
-static int read_pfile( const char *filepath, FULL_EVENT_MSG *fe_msg )
+static int read_pfile( const char *filepath, EARLY_EVENT_MSG *evt_msg )
 {
 	FILE *fp = NULL;
 	STA_INFO key, *staptr;
@@ -122,7 +123,7 @@ static int read_pfile( const char *filepath, FULL_EVENT_MSG *fe_msg )
 	char frac_11[8] = { 0 };
 	char frac_12[8] = { 0 };
 
-	if ( fe_msg == NULL )
+	if ( evt_msg == NULL )
 		return -1;
 
 	if ( !(fp = fopen(filepath, "r")) ) {
@@ -137,11 +138,11 @@ static int read_pfile( const char *filepath, FULL_EVENT_MSG *fe_msg )
 		frac_7, frac_8, frac_9, frac_10, frac_11, frac_12
 	);
 /* */
-	fe_msg->header.origin_time = get_unixtime_ot( atoi(frac_1), atoi(frac_2), atoi(frac_3), atoi(frac_4), atoi(frac_5), atof(frac_6) );
-	fe_msg->header.evlat   = atof(frac_7) + atof(frac_8) / 60.0;
-	fe_msg->header.evlon   = atof(frac_9) + atof(frac_10) / 60.0;
-	fe_msg->header.evdepth = atof(frac_11);
-	fe_msg->header.mag     = atof(frac_12);
+	evt_msg->header.origin_time = get_unixtime_ot( atoi(frac_1), atoi(frac_2), atoi(frac_3), atoi(frac_4), atoi(frac_5), atof(frac_6) );
+	evt_msg->header.evlat   = atof(frac_7) + atof(frac_8) / 60.0;
+	evt_msg->header.evlon   = atof(frac_9) + atof(frac_10) / 60.0;
+	evt_msg->header.evdepth = atof(frac_11);
+	evt_msg->header.mag     = atof(frac_12);
 /* */
 	npicks = 0;
 	while ( fgets(line, 512, fp) ) {
@@ -150,22 +151,22 @@ static int read_pfile( const char *filepath, FULL_EVENT_MSG *fe_msg )
 		strcpy(key.station, frac_1);
 		if ( (staptr = tfind(&key, &Root, compare_sta)) ) {
 			staptr = *(STA_INFO **)staptr;
-			strcpy(fe_msg->picks[npicks].station, frac_1);
-			fe_msg->picks[npicks].latitude  = staptr->latitude;
-			fe_msg->picks[npicks].longitude = staptr->longitude;
-			fe_msg->picks[npicks].elevation = staptr->elevation;
-			fe_msg->picks[npicks].picktime  = fe_msg->header.origin_time;
-			fe_msg->picks[npicks].polarity  = ud == '+' ? 'U' : ud == '-' ? 'D' : ' ';
-			fe_msg->picks[npicks].azi       = azi;
-			fe_msg->picks[npicks].tko       = tko;
-			fe_msg->picks[npicks].phase_name[0] = 'P';
-			fe_msg->picks[npicks].phase_name[1] = '\0';
+			strcpy(evt_msg->picks[npicks].station, frac_1);
+			evt_msg->picks[npicks].latitude  = staptr->latitude;
+			evt_msg->picks[npicks].longitude = staptr->longitude;
+			evt_msg->picks[npicks].elevation = staptr->elevation;
+			evt_msg->picks[npicks].picktime  = evt_msg->header.origin_time;
+			evt_msg->picks[npicks].polarity  = ud == '+' ? 'U' : ud == '-' ? 'D' : ' ';
+			evt_msg->picks[npicks].azi       = azi;
+			evt_msg->picks[npicks].tko       = tko;
+			evt_msg->picks[npicks].phase_name[0] = 'P';
+			evt_msg->picks[npicks].phase_name[1] = '\0';
 
 			npicks++;
 		}
 	}
 	fclose(fp);
-	fe_msg->header.npicks = fe_msg->header.nsta = fe_msg->header.npha = npicks;
+	evt_msg->header.npicks = evt_msg->header.nsta = evt_msg->header.npha = npicks;
 
 	return 0;
 }
@@ -227,7 +228,7 @@ static int read_stalist_file( const char *filepath )
  */
 static void send_fullevent_message( void *omsg, size_t msg_size )
 {
-	MSG_LOGO logo = { .type = TypeFullEvent, .mod = MyModId, .instid = InstId };
+	MSG_LOGO logo = { .type = TypeEarlyEvent, .mod = MyModId, .instid = InstId };
 
 /* Send cwaxml message to transport ring */
 	if ( tport_putmsg(&Region, &logo, msg_size, (char *)omsg) != PUT_OK )

@@ -12,6 +12,7 @@
 #include <stdatomic.h>
 #include <time.h>
 #include <math.h>
+#include <sys/stat.h>
 /* Earthworm environment header include */
 #include <earthworm.h>
 #include <kom.h>
@@ -19,7 +20,7 @@
 #include <lockfile.h>
 /* Local header include */
 #include <focalmech_ga.h>
-#include <full_event_msg.h>
+#include <early_event_msg.h>
 #include <thrd_pool.h>
 #include <fpl_func.h>
 #include <plot_focal.h>
@@ -32,14 +33,15 @@ static void focalmech_ga_lookup( void );
 static void focalmech_ga_status( unsigned char, short, char * );
 static void focalmech_ga_end( void );  /* Free all the local memory & close socket */
 
-static void  proc_event( void * );
+static void  proc_event( EARLY_EVENT_MSG *evt_msg );
 static void  proc_picks_tac( void * );
-static void  cal_pick_tko_azi( FULL_EVENT_PICK_MSG *, const double, const double, const double );
-static int   pack_picks_to_observes( FPL_OBSERVE **, void * );
+static void  cal_pick_tko_azi( EARLY_PICK_MSG *, const double, const double, const double );
+static int   pack_picks_to_observes( FPL_OBSERVE **, EARLY_EVENT_MSG * );
 static int   cal_focal_ga( FPL_RESULT *, FPL_RESULT *, double *, double *, FPL_OBSERVE *, const int );
 static void  plot_focal_result( FPL_RESULT *, FPL_RESULT *, FPL_RESULT *, FPL_OBSERVE *, const int, const double, const double, void *, const char * );
 static char *gen_script_command_args( char *, void *, FPL_RESULT [2], FPL_RESULT [2], double, double, int );
-static char *gen_focalplot_fullpath( char *, void * );
+static char *mk_outdir_by_evt( char *, const char *, void * );
+static char *gen_focalplot_fullpath( char *, const char *, void * );
 static void  split_time( int *, int *, int *, int *, int *, double *, const double );
 
 static SHM_INFO Region;      /* shared memory region to use for i/o    */
@@ -82,7 +84,7 @@ static unsigned char InstId;        /* local installation id             */
 static unsigned char MyModId;       /* Module Id for this program        */
 static unsigned char TypeHeartBeat;
 static unsigned char TypeError;
-static unsigned char TypeFullEvent;
+static unsigned char TypeEarlyEvent;
 
 /* Error messages used by focalmech_ga */
 #define ERR_MISSMSG       0   /* message missed in transport ring       */
@@ -90,16 +92,6 @@ static unsigned char TypeFullEvent;
 #define ERR_NOTRACK       2   /* msg retreived; tracking limit exceeded */
 #define ERR_QUEUE         3   /* error queueing message for sending      */
 static char  Text[150];       /* string for log/error messages          */
-
-/**
- * @brief
- *
- */
-typedef struct {
-	void      *buffer;
-	size_t     size;
-	atomic_int is_copied;
-} _BUFFER_DELIVER_ARG;
 
 /**
  * @brief
@@ -130,7 +122,7 @@ int main( int argc, char **argv )
 	long     recsize;      /* size of retrieved message     */
 	MSG_LOGO reclogo;      /* logo of retrieved message     */
 
-	uint8_t  buffer[FULL_EVENT_SIZE];
+	uint8_t  buffer[EARLY_EVENT_SIZE];
 
 /* Check command line arguments */
 	if ( argc != 2 ) {
@@ -190,7 +182,7 @@ int main( int argc, char **argv )
 			}
 
 		/* Get msg & check the return code from transport */
-			res = tport_getmsg(&Region, Getlogo, nLogo, &reclogo, &recsize, (char *)buffer, FULL_EVENT_SIZE);
+			res = tport_getmsg(&Region, Getlogo, nLogo, &reclogo, &recsize, (char *)buffer, EARLY_EVENT_SIZE);
 		/* No more new messages     */
 			if ( res == GET_NONE ) {
 				break;
@@ -200,7 +192,7 @@ int main( int argc, char **argv )
 			/* Complain and try again   */
 				sprintf(
 					Text, "Retrieved msg[%ld] (i%u m%u t%u) too big for Buffer[%ld]",
-					recsize, reclogo.instid, reclogo.mod, reclogo.type, (long)FULL_EVENT_SIZE
+					recsize, reclogo.instid, reclogo.mod, reclogo.type, (long)EARLY_EVENT_SIZE
 				);
 				focalmech_ga_status( TypeError, ERR_TOOBIG, Text );
 				continue;
@@ -223,24 +215,11 @@ int main( int argc, char **argv )
 			}
 
 		/* Process the message */
-			if ( reclogo.type == TypeFullEvent ) {
-				volatile _BUFFER_DELIVER_ARG arg = {
-					.buffer = buffer,
-					.size = recsize,
-					.is_copied = ATOMIC_VAR_INIT(0)
-				};
+			if ( reclogo.type == TypeEarlyEvent ) {
 			/* Debug */
 				/* logit( "", "%s", rec ); */
-			/* Generate every given seconds or at the coda of event */
-				if ( tpool_add_work( ThrdPool, proc_event, (void *)&arg ) ) {
-					logit("et", "focalmech_ga: Add the event messages to thread pool ERROR, lost message!\n");
-				}
-				else {
-					while ( !arg.is_copied ) {
-						printf("focalmech_ga: Waiting for the transfering of the event messages...\n");
-						sleep_ew(50);
-					}
-				}
+			/* */
+				proc_event( (EARLY_EVENT_MSG *)buffer );
 			}
 		} while ( 1 );
 	/* no more messages; wait for new ones to arrive */
@@ -462,21 +441,21 @@ static void focalmech_ga_config( char *configfile )
 				}
 				if ( (str = k_str()) ) {
 					if ( GetInst(str, &Getlogo[nLogo].instid) != 0 ) {
-						logit("e", "trace2peak: Invalid installation name <%s>", str);
+						logit("e", "focalmech_ga: Invalid installation name <%s>", str);
 						logit("e", " in <GetEventsFrom> cmd; exiting!\n");
 						exit(-1);
 					}
 				}
 				if ( (str = k_str()) ) {
 					if ( GetModId(str, &Getlogo[nLogo].mod) != 0 ) {
-						logit("e", "trace2peak: Invalid module name <%s>", str);
+						logit("e", "focalmech_ga: Invalid module name <%s>", str);
 						logit("e", " in <GetEventsFrom> cmd; exiting!\n");
 						exit(-1);
 					}
 				}
 				if ( (str = k_str()) ) {
 					if ( GetType(str, &Getlogo[nLogo].type) != 0 ) {
-						logit("e", "trace2peak: Invalid message type name <%s>", str);
+						logit("e", "focalmech_ga: Invalid message type name <%s>", str);
 						logit("e", " in <GetEventsFrom> cmd; exiting!\n");
 						exit(-1);
 					}
@@ -550,8 +529,8 @@ static void focalmech_ga_lookup( void )
 		fprintf(stderr, "focalmech_ga: Invalid message type <TYPE_ERROR>; exiting!\n");
 		exit(-1);
 	}
-	if ( GetType( "TYPE_FULL_EVENT", &TypeFullEvent ) != 0 ) {
-		fprintf(stderr, "focalmech_ga: Invalid message type <TYPE_FULL_EVENT>; exiting!\n");
+	if ( GetType( "TYPE_EARLY_EVENT", &TypeEarlyEvent ) != 0 ) {
+		fprintf(stderr, "focalmech_ga: Invalid message type <TYPE_EARLY_EVENT>; exiting!\n");
 		exit(-1);
 	}
 
@@ -616,11 +595,8 @@ static void focalmech_ga_end( void )
  *
  * @param arg
  */
-static void proc_event( void *arg )
+static void proc_event( EARLY_EVENT_MSG *evt_msg )
 {
-	_BUFFER_DELIVER_ARG    *in_buffer = arg;
-	uint8_t                 buffer[FULL_EVENT_SIZE];
-	FULL_EVENT_MSG_HEADER  *header;
 	volatile _PICKS_TAC_ARG tac_arg[ThreadsNum];
 /* */
 	FPL_OBSERVE *obs;
@@ -631,20 +607,17 @@ static void proc_event( void *arg )
 	int          nobs;
 	double       f_score;
 	double       quality;
+	char         output_dir[MAX_PATH_STR];
 	char         fullpath[MAX_PATH_STR];
 	char         command[MAX_PATH_STR * 4];
 	char         script_args[MAX_PATH_STR * 2];
 
 /* Tell the main thread we're ok */
-	memcpy(buffer, in_buffer->buffer, in_buffer->size);
-	in_buffer->is_copied += 1;
-/* */
-	header = (FULL_EVENT_MSG_HEADER *)buffer;
-	logit("ot", "focalmech_ga: Receive a new event message (%s), start to process it!\n", header->event_id);
+	logit("ot", "focalmech_ga: Receive a new event message (%s), start to process it!\n", evt_msg->header.event_id);
 /* Get the take-off angle & azimuth of all the picks */
 /* Maybe need to generate the calculating function's threads */
 	for ( int i = 0; i < ThreadsNum; i++ ) {
-		tac_arg[i].buffer = buffer;
+		tac_arg[i].buffer = evt_msg;
 		tac_arg[i].proc_thrds = ThreadsNum;
 		tac_arg[i].assign_idx = i;
 		tac_arg[i].is_finish = ATOMIC_VAR_INIT(0);
@@ -655,16 +628,19 @@ static void proc_event( void *arg )
 		while ( !tac_arg[i].is_finish )
 			sleep_ew(10);
 /* */
-	if ( (nobs = pack_picks_to_observes( &obs, buffer )) >= MinPickPolarity ) {
+	if ( (nobs = pack_picks_to_observes( &obs, evt_msg )) >= MinPickPolarity ) {
 	/* */
-		gen_focalplot_fullpath( fullpath, buffer );
+		if ( !mk_outdir_by_evt( output_dir, ReportPath, evt_msg ) )
+			return;
+	/* */
+		gen_focalplot_fullpath( fullpath, output_dir, evt_msg );
 		cal_focal_ga( &best_solution, &best_sdv, &f_score, &quality, obs, nobs );
 		fpl_dbcouple( &best_solution, dbresult, &ptaxis[FPLF_T_AXIS], &ptaxis[FPLF_P_AXIS] );
-		plot_focal_result( dbresult, ptaxis, &best_sdv, obs, nobs, f_score, quality, buffer, fullpath );
+		plot_focal_result( dbresult, ptaxis, &best_sdv, obs, nobs, f_score, quality, evt_msg, fullpath );
 	/* Post to the Facebook or other place by external script */
-		gen_script_command_args( script_args, buffer, dbresult, ptaxis, f_score, quality, nobs );
+		gen_script_command_args( script_args, evt_msg, dbresult, ptaxis, f_score, quality, nobs );
 		for ( int i = 0; i < NumPostScripts; i++ ) {
-			if ( PostScripts[i].min_magnitude <= header->mag ) {
+			if ( PostScripts[i].min_magnitude <= evt_msg->header.mag ) {
 				logit("o", "focalmech_ga: Executing the script: '%s'\n", PostScripts[i].script);
 				sprintf(command, "%s %s", PostScripts[i].script, script_args);
 			/* Execute system command to post focal */
@@ -691,9 +667,9 @@ static void proc_event( void *arg )
  */
 static void proc_picks_tac( void *arg )
 {
-	_PICKS_TAC_ARG        *tac_arg = arg;
-	FULL_EVENT_MSG_HEADER *header = (FULL_EVENT_MSG_HEADER *)tac_arg->buffer;
-	FULL_EVENT_PICK_MSG   *pick = (FULL_EVENT_PICK_MSG *)(header + 1);
+	_PICKS_TAC_ARG         *tac_arg = arg;
+	EARLY_EVENT_MSG_HEADER *header = (EARLY_EVENT_MSG_HEADER *)tac_arg->buffer;
+	EARLY_PICK_MSG         *pick = (EARLY_PICK_MSG *)(header + 1);
 
 /* */
 	for ( int i = tac_arg->assign_idx; i < header->npicks; i += tac_arg->proc_thrds )
@@ -712,7 +688,7 @@ static void proc_picks_tac( void *arg )
  * @param evlon
  * @param evdep
  */
-static void cal_pick_tko_azi( FULL_EVENT_PICK_MSG *pick, const double evlat, const double evlon, const double evdep )
+static void cal_pick_tko_azi( EARLY_PICK_MSG *pick, const double evlat, const double evlon, const double evdep )
 {
 	tac_main( &pick->tko, &pick->azi, evlat, evlon, evdep, pick->latitude, pick->longitude, pick->elevation * -0.001 );
 	return;
@@ -725,22 +701,21 @@ static void cal_pick_tko_azi( FULL_EVENT_PICK_MSG *pick, const double evlat, con
  * @param ev_msg
  * @return int
  */
-static int pack_picks_to_observes( FPL_OBSERVE **result, void *ev_msg )
+static int pack_picks_to_observes( FPL_OBSERVE **result, EARLY_EVENT_MSG *evt_msg )
 {
-	FULL_EVENT_MSG_HEADER *header = (FULL_EVENT_MSG_HEADER *)ev_msg;
-	FULL_EVENT_PICK_MSG   *pick   = (FULL_EVENT_PICK_MSG *)(header + 1);
-	FPL_OBSERVE           *obs    = NULL;
-	int                    nobs;
+	EARLY_PICK_MSG *pick = evt_msg->picks;
+	FPL_OBSERVE    *obs  = NULL;
+	int             nobs;
 
 /* */
 	*result = NULL;
 /* */
-	if ( !header->npicks )
+	if ( !evt_msg->header.npicks )
 		return 0;
 /* */
-	obs = calloc(header->npicks, sizeof(FPL_OBSERVE));
+	obs = calloc(evt_msg->header.npicks, sizeof(FPL_OBSERVE));
 	nobs = 0;
-	for ( int i = 0; i < header->npicks; i++, pick++ ) {
+	for ( int i = 0; i < evt_msg->header.npicks; i++, pick++ ) {
 		if ( pick->polarity == ' ' || pick->polarity == '?' )
 			continue;
 		obs[nobs].azimuth  = pick->azi;
@@ -800,7 +775,7 @@ static int cal_focal_ga( FPL_RESULT *fpl, FPL_RESULT *sdv, double *f_score, doub
  */
 static void plot_focal_result( FPL_RESULT *dbresult, FPL_RESULT *ptaxis, FPL_RESULT *sdv, FPL_OBSERVE *obs, const int nobs, const double f_score, const double quality, void *ev_msg, const char *output_path )
 {
-	FULL_EVENT_MSG_HEADER *header = (FULL_EVENT_MSG_HEADER *)ev_msg;
+	EARLY_EVENT_MSG_HEADER *header = (EARLY_EVENT_MSG_HEADER *)ev_msg;
 /* */
 	int    year, mon, day, hour, min;
 	double sec;
@@ -835,7 +810,7 @@ static void plot_focal_result( FPL_RESULT *dbresult, FPL_RESULT *ptaxis, FPL_RES
  */
 static char *gen_script_command_args( char *buffer, void *ev_msg, FPL_RESULT dbresult[2], FPL_RESULT ptaxis[2], double f_score, double quality, int nobs )
 {
-	FULL_EVENT_MSG_HEADER *evheader = (FULL_EVENT_MSG_HEADER *)ev_msg;
+	EARLY_EVENT_MSG_HEADER *evheader = (EARLY_EVENT_MSG_HEADER *)ev_msg;
 
 /* Command arguments for executing script */
 	sprintf(
@@ -852,16 +827,38 @@ static char *gen_script_command_args( char *buffer, void *ev_msg, FPL_RESULT dbr
 /**
  * @brief
  *
+ * @param opath
+ * @param parent_path
+ * @param ev_msg
+ * @return char*
+ */
+static char *mk_outdir_by_evt( char *opath, const char *parent_path, void *ev_msg )
+{
+	EARLY_EVENT_MSG_HEADER *evheader = (EARLY_EVENT_MSG_HEADER *)ev_msg;
+/* If the previous thread is still alived, kill it! */
+	sprintf(opath, "%s%s_%d/", parent_path, evheader->event_id, MyPid);
+/* */
+	if ( access(opath, F_OK) && mkdir(opath, S_IRWXU | S_IRGRP | S_IROTH) ) {
+		logit("e", "focalmech_ga: Cannot make the new directory for event (%s), skip it!\n", evheader->event_id);
+		return NULL;
+	}
+
+	return opath;
+}
+
+/**
+ * @brief
+ *
  * @param output
  * @param ev_msg
  * @return char*
  */
-static char *gen_focalplot_fullpath( char *output, void *ev_msg )
+static char *gen_focalplot_fullpath( char *output, const char *parent_path, void *ev_msg )
 {
-	FULL_EVENT_MSG_HEADER *evheader = (FULL_EVENT_MSG_HEADER *)ev_msg;
+	EARLY_EVENT_MSG_HEADER *evheader = (EARLY_EVENT_MSG_HEADER *)ev_msg;
 
 /* Generate the output figure name */
-	sprintf(output, "%s%s_focal.png", ReportPath, evheader->event_id);
+	sprintf(output, "%s%s_%d_focal.png", parent_path, evheader->event_id, evheader->seq);
 
 	return output;
 }
