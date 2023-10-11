@@ -52,20 +52,15 @@ static MSG_LOGO Getlogo[MAXLOGO];   /* array for requesting module,type,instid *
 static pid_t    MyPid;              /* for restarts by startstop               */
 
 /* Thread things */
-#define THREAD_STACK 8388608        /* 8388608 Byte = 8192 Kilobyte = 8 Megabyte */
-#define THREAD_OFF    0				/* ComputePGA has not been started      */
-#define THREAD_ALIVE  1				/* ComputePGA alive and well            */
-#define THREAD_ERR   -1				/* ComputePGA encountered error quit    */
+static tpool_t *ThrdPool = NULL;
 
 #define MAX_POST_SCRIPTS        5
 
-static tpool_t *ThrdPool = NULL;
-
 /* Things to read or derive from configuration file */
-static char     RingName[MAX_RING_STR];		/* name of transport ring for i/o    */
-static char     MyModName[MAX_MOD_STR];		/* speak as this module name/id      */
-static uint8_t  LogSwitch;					/* 0 if no logfile should be written */
-static uint64_t HeartBeatInterval;			/* seconds between heartbeats        */
+static char     RingName[MAX_RING_STR];     /* name of transport ring for i/o    */
+static char     MyModName[MAX_MOD_STR];     /* speak as this module name/id      */
+static uint8_t  LogSwitch;                  /* 0 if no logfile should be written */
+static uint64_t HeartBeatInterval;          /* seconds between heartbeats        */
 static uint8_t  ThreadsNum   = 1;
 static uint8_t  RemoveSwitch = 0;
 static short    nLogo = 0;
@@ -153,7 +148,7 @@ int main( int argc, char **argv )
 	}
 
 /* Create a Mutex to control access to queue & initialize the message queue */
-	tpool_init( &ThrdPool, ThreadsNum + 1, ThreadsNum + 1 );
+	tpool_init( &ThrdPool, ThreadsNum, ThreadsNum * 2 );
 /* Attach to Input/Output shared memory ring */
 	tport_attach( &Region, RingKey );
 	logit("", "focalmech_ga: Attached to public memory region %s: %ld\n", RingName, RingKey );
@@ -612,7 +607,7 @@ static void proc_event( EARLY_EVENT_MSG *evt_msg )
 	char         command[MAX_PATH_STR * 4];
 	char         script_args[MAX_PATH_STR * 2];
 
-/* Tell the main thread we're ok */
+/* Tell the user we're working */
 	logit("ot", "focalmech_ga: Receive a new event message (%s), start to process it!\n", evt_msg->header.event_id);
 /* Get the take-off angle & azimuth of all the picks */
 	for ( int i = 0; i < ThreadsNum; i++ ) {
@@ -622,17 +617,17 @@ static void proc_event( EARLY_EVENT_MSG *evt_msg )
 		tac_arg[i].is_finish = ATOMIC_VAR_INIT(0);
 		tpool_add_work( ThrdPool, proc_picks_tac, (void *)&tac_arg[i] );
 	}
-/* */
+/* Generate the output dir & the output full path */
 	if ( !mk_outdir_by_evt( output_dir, ReportPath, evt_msg ) )
 		return;
 	gen_focalplot_fullpath( fullpath, output_dir, evt_msg );
-/* */
+/* Waiting for the threads */
 	for ( int i = 0; i < ThreadsNum; i++ )
 		while ( !tac_arg[i].is_finish )
 			sleep_ew(1);
-/* */
+/* Check for the number of observation */
 	if ( (nobs = pack_picks_to_observes( &obs, evt_msg )) >= MinPickPolarity ) {
-	/* */
+	/* Main computation */
 		cal_focal_ga( &best_solution, &best_sdv, &f_score, &quality, obs, nobs );
 		fpl_dbcouple( &best_solution, dbresult, &ptaxis[FPLF_T_AXIS], &ptaxis[FPLF_P_AXIS] );
 		plot_focal_result( dbresult, ptaxis, &best_sdv, obs, nobs, f_score, quality, evt_msg, fullpath );
@@ -654,7 +649,7 @@ static void proc_event( EARLY_EVENT_MSG *evt_msg )
 			remove(fullpath);
 			remove(output_dir);
 		}
-	/* */
+	/* Release the requested memory space of observations */
 		free(obs);
 	}
 	else {
