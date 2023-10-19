@@ -68,6 +68,7 @@ static char     ReportPath[MAX_PATH_STR];
 static POSCRIPT PostScripts[MAX_POST_SCRIPTS];
 static uint8_t  NumPostScripts  = 0;                /* Number of exec. scripts */
 static uint32_t MinPickPolarity = 3;
+static double   IgnPickResidual = 1.0;
 static uint8_t  IterationNum    = 20;
 static uint32_t Population      = 800;
 static uint8_t  MutateBits      = 3;
@@ -330,6 +331,13 @@ static void focalmech_ga_config( char *configfile )
 				logit(
 					"o", "focalmech_ga: The minimum number of pick polarity has been setted to %d.\n",
 					MinPickPolarity
+				);
+			}
+			else if ( k_its("IgnorePickResidual") ) {
+				IgnPickResidual = k_val();
+				logit(
+					"o", "focalmech_ga: The acceptable absolute picking residual has been setted to %.2lf sec.\n",
+					IgnPickResidual
 				);
 			}
 			else if ( k_its("IterationNum") ) {
@@ -718,7 +726,7 @@ static int pack_picks_to_observes( FPL_OBSERVE **result, EARLY_EVENT_MSG *evt_ms
 	obs = calloc(evt_msg->header.npicks, sizeof(FPL_OBSERVE));
 	nobs = 0;
 	for ( int i = 0; i < evt_msg->header.npicks; i++, pick++ ) {
-		if ( pick->polarity == ' ' || pick->polarity == '?' )
+		if ( pick->polarity == ' ' || pick->polarity == '?' || fabs(pick->residual) > IgnPickResidual )
 			continue;
 		obs[nobs].azimuth  = pick->azi;
 		obs[nobs].takeoff  = pick->tko;

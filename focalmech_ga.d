@@ -15,6 +15,9 @@ RemoveFocalPlot     0               # 0 to keep those plot files; 1 to remove th
                                     # files after posted. Defaults to 0 if this is not setted
 MinPickPolarity     3               # min number of pick polarity
 
+IgnorePickResidual  1.0             # maximum acceptable absolute picking residual in seconds, any pick with
+                                    # residual higher than this value will be ignored. Defaults to 1.0 sec.
+
 # Parameters for main Genetic Algorithm:
 #
 IterationNum        20              # maximum iteration times, defaults to 20

@@ -14,7 +14,7 @@ LC_LIBDIR = ../lib
 #
 EWLIBS = $(EW_LIBDIR)/lockfile_ew.o $(EW_LIBDIR)/lockfile.o $(EW_LIBDIR)/libew_mt.a
 
-LCLIBS = $(LC_LIBDIR)/thrd_pool.o
+LCLIBS = $(LC_LIBDIR)/thrd_pool.o $(LC_LIBDIR)/raytracing.o
 
 CPGPLOT_LIB = $(LC_LIBDIR)/libcpgplot.a $(LC_LIBDIR)/libpgplot.a
 
@@ -34,7 +34,7 @@ OBJS = \
 focalmech_ga: $(OBJS)
 	@echo Creating $@...
 	@$(FCOMPL) -o $(EW_BINDIR)/$@ $(OBJS) $(CPGPLOT_LIB) $(EWLIBS) $(LCLIBS) $(LIBS)
-	
+
 pfile2fevent: pfile2fevent.o
 	@echo Creating $@...
 	@$(CC) -o $(EW_BINDIR)/$@ pfile2fevent.o $(EWLIBS) $(LIBS)

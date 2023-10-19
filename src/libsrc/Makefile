@@ -8,15 +8,11 @@ CFLAGS = $(GLOBALFLAGS) -O3 -g -I../../include -flto
 
 LIB_DIR = ../../lib
 
-# All library command
-all: thrd_pool pgplot
+LOCALSRCS = thrd_pool.c raytracing.c
+LOCALOBJS = $(LOCALSRCS:%.c=%.o)
 
-#
-#
-#
-thrd_pool: thrd_pool.o
-	@echo Creating $@...
-	@mv thrd_pool.o $(LIB_DIR)
+all: $(LOCALOBJS) pgplot
+	@mv *.o $(LIB_DIR)
 
 #
 # PGPlot library

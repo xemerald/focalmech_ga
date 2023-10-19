@@ -22,7 +22,6 @@ void pfocal_canva_open( const char *fullpath )
 	char _path[MAX_PATH_STR];
 /* */
 	sprintf(_path, "%s/png", fullpath);
-	printf("%s\n", _path);
 	if ( !cpgopen(_path) ) {
 		fprintf(stderr, "pfocal_canva_open: ERROR!! Can't open %s\n", fullpath);
 		return;
@@ -66,15 +65,18 @@ void pfocal_dbplane_plot( FPL_RESULT dbplane[2], const double radius )
 	const double r_sqrt_two = radius * sqrt(2.0);
 	double sin_str;
 	double cos_str;
+	double tan_dip;
 	float _x;
 	float _y;
 
 /* */
 	for ( int i = 0; i < 2; i++ ) {
-		if ( dbplane[i].dip >= FOCAL_GA_HALF_PI )
-			dbplane[i].dip -= 0.0001;
-		else if ( dbplane[i].dip < 0.0001 )
-			dbplane[i].dip += 0.0001;
+		if ( dbplane[i].dip > FOCAL_GA_TAN_LIMITRAD )
+			dbplane[i].dip -= FOCAL_GA_RADEPS;
+		else if ( dbplane[i].dip < FOCAL_GA_RADEPS )
+			dbplane[i].dip += FOCAL_GA_RADEPS;
+	/* */
+		tan_dip = tan(dbplane[i].dip);
 	/* */
 		sin_str = sin(dbplane[i].strike);
 		cos_str = cos(dbplane[i].strike);
@@ -83,7 +85,7 @@ void pfocal_dbplane_plot( FPL_RESULT dbplane[2], const double radius )
 		cpgmove(_x, _y);
 		for ( double theta = FOCAL_GA_HALF_PI; theta >= -FOCAL_GA_HALF_PI; theta -= FOCAL_GA_DEG2RAD ) {
 			double cos_theta = cos(theta);
-			double tmp1 = cos_theta * tan(dbplane[i].dip);
+			double tmp1 = cos_theta * tan_dip;
 			double tmp2 = r_sqrt_two * sin(acos(tmp1 / sqrt(tmp1 * tmp1 + 1.0)) * 0.5);
 			tmp1 = tmp2 * cos_theta;
 			tmp2 *= sin(theta);
